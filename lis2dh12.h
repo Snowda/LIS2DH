@@ -4,7 +4,8 @@
 *
 * Changelog:
 *     ... - ongoing development release
-
+*     ... - May 2018 - Update by Disk91 / Paul Pinault to make it working
+*           maintained at https://github.com/disk91/LIS2DH
 * NOTE: THIS IS ONLY A PARIAL RELEASE. 
 * THIS DEVICE CLASS IS CURRENTLY UNDERGOING ACTIVE DEVELOPMENT AND IS MISSING MOST FEATURES. 
 * PLEASE KEEP THIS IN MIND IF YOU DECIDE TO USE THIS PARTICULAR CODE FOR ANYTHING.
@@ -63,7 +64,7 @@
 //what goes here?
 
 //WHO_AM_I masks
-#define LIS2DH_I_AM_MASK    0x33
+#define LIS2DH_I_AM_VALUE   0x33
 
 // TEMP_CFG_REG masks
 #define LIS2DH_TEMP_EN_MASK   0xC0
@@ -74,22 +75,53 @@
 #define LIS2DH_Z_EN_MASK    0x04
 #define LIS2DH_Y_EN_MASK    0x02
 #define LIS2DH_X_EN_MASK    0x01
-#define LIS2DH_XYZ_EN_MASK    0x07
+#define LIS2DH_XYZ_EN_MASK  0x07
+
+#define LIS2DH_ODR_SHIFT      4
+#define LIS2DH_ODR_POWER_DOWN 0x00
+#define LIS2DH_ODR_1HZ        0x01
+#define LIS2DH_ODR_10HZ       0x02
+#define LIS2DH_ODR_25HZ       0x03
+#define LIS2DH_ODR_50HZ       0x04
+#define LIS2DH_ODR_100HZ      0x05
+#define LIS2DH_ODR_200HZ      0x06
+#define LIS2DH_ODR_400HZ      0x07
+#define LIS2DH_ODR_1620HZ     0x08
+#define LIS2DH_ODR_1344HZ     0x09
+#define LIS2DH_ODR_5376HZ     0x09
+#define LIS2DH_ODR_MAXVALUE   0x09
+
 
 // CTRL_REG2 masks
-#define LIS2DH_HPM_MASK     0xC0
-#define LIS2DH_HPCF_MASK    0x30
-#define LIS2DH_FDS_MASK     0x08
-#define LIS2DH_HPCLICK_MASK   0x04
-#define LIS2DH_HPIS2_MASK     0x02
-#define LIS2DH_HPIS1_MASK     0x01
+#define LIS2DH_HPM_MASK         0xC0
+#define LIS2DH_HPCF_MASK        0x30
+#define LIS2DH_FDS_MASK         0x08
+#define LIS2DH_HPCLICK_MASK     0x04
+#define LIS2DH_HPIA2_MASK       0x02        // Apply filtering on interrupt 2
+#define LIS2DH_HPIA1_MASK       0x01        // Apply filtering on interrupt 1
+
+#define LIS2DH_HPM_SHIFT          6
+#define LIS2DH_HPM_NORMAL_RESET   0x00      // In this mode - when reading on of the XL/XH_REFERENCE register the current acceleration is reset on the corresponding axe (manuela reset)
+#define LIS2DH_HPM_REFSIG         0x01      // In this mode acceleration is the difference with the XL/XH_REFERENCE content for each axis
+#define LIS2DH_HPM_NORMAL2        0x02      // In this mode I assume we have no filtering
+#define LIS2DH_HPM_AUTORESET      0x03      // In this mode the interrupt event will reset the filter
+#define LIS2DH_HPM_MAXVALUE       0x03
+
+#define LIS2DH_HPCF_SHIFT         4
+#define LIS2DH_HPCF_ODR_50        0x00      // F cut = ODR Freq / 50
+#define LIS2DH_HPCF_ODR_100       0x01
+#define LIS2DH_HPCF_ODR_9         0x02
+#define LIS2DH_HPCF_ODR_400       0x03
+#define LIS2DH_HPCF_MAXVALUE      0x03
 
 // CTRL_REG3 masks
-#define LIS2DH_I1_CLICK     0x80
-#define LIS2DH_I1_AOI       0x60
-#define LIS2DH_I1_DRDY      0x18
-#define LIS2DH_I1_WTM       0x04
-#define LIS2DH_I1_OVERRUN     0x02
+#define LIS2DH_I1_CLICK           0x80      // Interrupt on click on INT1
+#define LIS2DH_I1_IA1             0x40      // Interrupt from IA1 on INT1
+#define LIS2DH_I1_IA2             0x20      // Interrupt from IA2 on INT1
+#define LIS3DH_I1_ZYXDA           0x10      // Any Data axis on INT1
+#define LIS2DH_I1_WTM             0x04      // FiFo Watermark on INT1
+#define LIS2DH_I1_OVERRUN         0x02      // FiFo Overrun on INT1
+#define LIS2DH_I1_INTERRUPT_NONE  0x00
 
 // CTRL_REG4 masks
 #define LIS2DH_BDU_MASK     0x80
@@ -237,18 +269,24 @@ class LIS2DH {
     bool isZAxisEnabled(void);
     bool getHPFilterMode(uint8_t mode);
     bool setHPFilterMode(uint8_t mode);
+    bool getHPFilterCutOff(uint8_t mode);
+    bool setHPFilterCutOff(uint8_t mode);
     bool EnableHPClick(void);
     bool disableHPClick(void);
     bool isHPClickEnabled(void);
-    bool EnableHPIS1(void);
-    bool disableHPIS1(void);
-    bool isHPIS1Enabled(void);
-    bool EnableHPIS2(void);
-    bool disableHPIS2(void);
-    bool isHPIS2Enabled(void);
-
+    bool EnableHPIA1(void);
+    bool disableHPIA1(void);
+    bool isHPIA1Enabled(void);
+    bool EnableHPIA2(void);
+    bool disableHPIA2(void);
+    bool isHPIA2Enabled(void);
+    bool EnableHPFDS(void);
+    bool disableHPFDS(void);
+    bool isHPFDSEnabled(void);
     bool enableAxisXYZ(void);
     bool disableAxisXYZ(void);
+    bool enableInterruptInt1(uint8_t _int);
+    bool disableInterruptInt1(uint8_t _int);
     
  private:
     bool writeRegister(const uint8_t register_addr, const uint8_t value);
@@ -260,7 +298,6 @@ class LIS2DH {
     uint8_t  readMaskedRegister(const uint8_t register_addr, const uint8_t mask);
 
     uint8_t _address;
-    uint8_t _whoami;
 };
 
 #endif /* _LIS2DH_H_ */
