@@ -38,9 +38,14 @@ bool LIS2DH::init(void) {
     Wire.begin(); 
     if ( this->whoAmI() ) {
       // connexion success
-      // set a default configuration with 10Hz - Normal mode (full resolution)
+      // set a default configuration with 10Hz - Low Power ( 8b resolution )
       ret &= this->setDataRate(LIS2DH_ODR_10HZ);
-      ret &= this->disableLowPower();
+      ret &= this->enableLowPower();
+      ret &= this->setAccelerationScale(LIS2DH_FS_SCALE_2G);
+
+      // shutdown interrupt
+      ret &= this->disableAllInterrupt();
+
       // enable all the axis
       ret &= this->enableAxisXYZ();
 
@@ -52,8 +57,7 @@ bool LIS2DH::init(void) {
       ret &= this->EnableHPIA1();
       ret &= this->EnableHPClick();
 
-      // shutdown interrupt
-      ret &= this->writeRegister(LIS2DH_CTRL_REG3,LIS2DH_I1_INTERRUPT_NONE);
+
       
     } else return false;
         
@@ -66,13 +70,7 @@ bool LIS2DH::init(void) {
 // -----------------------------------------------------
 
 
-/**
- * Return true if the WHOAMI register returned th expected Value
- * 0x33
- */
-bool LIS2DH::whoAmI(void) {
-    return (LIS2DH_I_AM_VALUE == readRegister(LIS2DH_WHO_AM_I));
-}
+
 
 /** Read the X axis registers
  * @see LIS2DH_OUT_X_H
@@ -158,7 +156,9 @@ bool LIS2DH::setDataRate(uint8_t data_rate) {
 // ========= Power Management
 
 bool LIS2DH::enableLowPower(void) {
-    return writeMaskedRegister8(LIS2DH_CTRL_REG1, LIS2DH_LPEN_MASK, true);
+    bool ret = writeMaskedRegister8(LIS2DH_CTRL_REG1, LIS2DH_LPEN_MASK, true);
+    ret &= this->setHighResolutionMode(false);
+    return ret;
 }
 
 
@@ -168,7 +168,8 @@ bool LIS2DH::disableLowPower(void) {
 
 
 bool LIS2DH::isLowPowerEnabled(void) {
-    return (readMaskedRegister(LIS2DH_CTRL_REG1, LIS2DH_LPEN_MASK) != 0);
+    return (    readMaskedRegister(LIS2DH_CTRL_REG1, LIS2DH_LPEN_MASK) != 0 
+             && !this->isHighResolutionMode() );
 }
 
 // ========== Axis management
@@ -295,7 +296,7 @@ bool LIS2DH::disableHPIA2(void) {
     return writeMaskedRegister8(LIS2DH_CTRL_REG2, LIS2DH_HPIA2_MASK, false);
 }
 
-bool LIS2DH::isHPIA1Enabled(void) {
+bool LIS2DH::isHPIA2Enabled(void) {
     return (readMaskedRegister(LIS2DH_CTRL_REG2, LIS2DH_HPIA2_MASK) != 0);
 }
 
@@ -325,6 +326,142 @@ bool LIS2DH::enableInterruptInt1(uint8_t _int) {
 
 bool LIS2DH::disableInterruptInt1(uint8_t _int) {
   return this->writeMaskedRegister8(LIS2DH_CTRL_REG3,_int,false);
+}
+
+/**
+ * Enable / Disable an interrupt source on INT2
+ */
+bool LIS2DH::enableInterruptInt2(uint8_t _int) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG6,_int,true);
+}
+
+bool LIS2DH::disableInterruptInt2(uint8_t _int) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG6,_int,false);
+}
+
+/**
+ * Disable all interrupts
+ */
+bool LIS2DH::disableAllInterrupt() {
+  bool ret = writeRegister(LIS2DH_CTRL_REG3,LIS2DH_I1_INTERRUPT_NONE);
+  ret &= writeMaskedRegisterI(LIS2DH_CTRL_REG6,LIS2DH_I2_MASK,LIS2DH_I2_INTERRUPT_NONE);
+  return ret;
+}
+
+/**
+ * Set the interrupt polarity
+ */
+bool LIS2DH::setInterruptPolarity(uint8_t polarity) {
+  switch ( polarity ) {
+    case HIGH:
+      return this->writeMaskedRegister8(LIS2DH_CTRL_REG6,LIS2DH_INT_POLARITY,false);
+    case LOW:
+      return this->writeMaskedRegister8(LIS2DH_CTRL_REG6,LIS2DH_INT_POLARITY,true);
+    default:
+      return false;
+  }
+}
+
+
+/**
+ * Latch INterrupt 1/2 => the interrupt is only cleared when INT1_SRC / INT2_SRC register is read
+ */
+bool LIS2DH::enableLatchInterrupt1(bool enable) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT1_MASK,enable); 
+}
+bool LIS2DH::enableLatchInterrupt2(bool enable) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT2_MASK,enable); 
+}
+
+
+
+// ========== Misc settings
+
+/**
+ * Set little / big endian
+ * Only valid when HR mode is on
+ */
+bool LIS2DH::setLittleEndian() {
+  if ( this->readMaskedRegister(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK) != 0 ) {
+    return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_BLE_MASK,false);    
+  }
+  return false;
+}
+
+bool LIS2DH::setBitEndian() {
+  if ( this->readMaskedRegister(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK) != 0 ) {
+    return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_BLE_MASK,true);    
+  }
+  return false;
+}
+
+/** 
+ *  Select a Block Data contunious update or an update only once the MSB & LSB has been read
+ */
+bool LIS2DH::setContinuousUpdate(bool continuous) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_BDU_MASK,~continuous); 
+}
+
+/**
+ * Set the accelerations scale
+ */
+bool LIS2DH::setAccelerationScale(uint8_t scale) {
+    if(scale > LIS2DH_FS_MAXVALUE) {
+        return false;
+    }
+    scale = scale << LIS2DH_FS_SHIFT;
+    return writeMaskedRegisterI(LIS2DH_CTRL_REG4, LIS2DH_FS_MASK, scale);
+}
+
+/**
+ * Set the high Resolution mode
+ * HR mode 
+ */
+bool LIS2DH::setHighResolutionMode(bool hr) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK,hr); 
+}
+
+
+bool LIS2DH::isHighResolutionMode() {
+  return ( this->readMaskedRegister(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK) != 0 );
+}
+
+/** 
+ *  Reboot memory content
+ */
+bool LIS2DH::reboot() {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_BOOT_MASK,true); 
+}
+
+/**
+ * Return true if the WHOAMI register returned th expected Value
+ * 0x33
+ */
+bool LIS2DH::whoAmI(void) {
+    return (LIS2DH_I_AM_VALUE == readRegister(LIS2DH_WHO_AM_I));
+}
+
+/**
+ * Enable / Disable Fifo
+ */
+bool LIS2DH::enableFifo(bool enable) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_FIFO_EN_MASK,enable); 
+}
+
+
+// ======== REFERENCE used for interrupt generation
+
+bool LIS2DH::setReference(uint8_t ref) {
+  return this->writeRegister(LIS2DH_REFERENCE,ref);
+}
+
+// ========= STATUS
+/**
+ * Return the Data status bit filed.
+ * See LIS2DH_STATUS_XXXX for different possible status
+ */
+uint8_t LIS2DH::getDataStatus() {
+  return this->readRegister(LIS2DH_STATUS_REG2);
 }
 
 // -----------------------------------------------------

@@ -123,6 +123,18 @@
 #define LIS2DH_I1_OVERRUN         0x02      // FiFo Overrun on INT1
 #define LIS2DH_I1_INTERRUPT_NONE  0x00
 
+// CTRL_REG6 masks
+#define LIS2DH_I2_MASK            0xF8       // Mask for interrupt
+#define LIS2DH_I2_CLICK           0x80       // Click interrupt
+#define LIS2DH_I2_IA1             0x40       // Interrupt 1 function
+#define LIS2DH_I2_IA2             0x20       // Interrupt 2 function
+#define LIS2DH_I2_BOOT            0x10       // Boot interrupt
+#define LIS2DH_I2_ACTIVITY        0x08       // Activity interrupt
+#define LIS2DH_I2_INTERRUPT_NONE  0x00
+#define LIS2DH_INT_POLARITY       0x02        // Interupt polarity => 0 active high / 1 active low
+
+
+
 // CTRL_REG4 masks
 #define LIS2DH_BDU_MASK     0x80
 #define LIS2DH_BLE_MASK     0x40
@@ -130,6 +142,14 @@
 #define LIS2DH_HR_MASK      0x08
 #define LIS2DH_ST_MASK      0x06
 #define LIS2DH_SIM_MASK     0x01
+
+#define LIS2DH_FS_SHIFT     4
+#define LIS2DH_FS_SCALE_2G  0x00
+#define LIS2DH_FS_SCALE_4G  0x01
+#define LIS2DH_FS_SCALE_8G  0x02
+#define LIS2DH_FS_SCALE_16G 0x03
+#define LIS2DH_FS_MAXVALUE  0x03
+
 
 // CTRL_REG5 masks
 #define LIS2DH_BOOT_MASK    0x80
@@ -139,26 +159,19 @@
 #define LIS2DH_LIR_INT2_MASK  0x02
 #define LIS2DH_D4D_INT2_MASK  0x01
 
-// CTRL_REG6 masks
-#define LIS2DH_I2C_CCK_EN_MASK  0x80
-#define LIS2DH_I2C_INT1_MASK  0x40
-#define LIS2DH_I2C_INT2_MASK  0x20
-#define LIS2DH_BOOT_I2_MASK   0x10
-#define LIS2DH_P2_ACT_MASK    0x08
-#define LIS2DH_H_LACTIVE_MASK   0x02
 
 // REF masks
 // none
 
 // STATUS_REG masks
-#define LIS2DH_ZYXOR_MASK     0x80
-#define LIS2DH_ZOR_MASK     0x40
-#define LIS2DH_YOR_MASK     0x20
-#define LIS2DH_XOR_MASK     0x10
-#define LIS2DH_ZYXDA_MASK     0x08
-#define LIS2DH_ZDA_MASK     0x04
-#define LIS2DH_YDA_MASK     0x02
-#define LIS2DH_XDA_MASK     0x01
+#define LIS2DH_STATUS_ZYXOR     0x80      // X, Y, Z data overrun => a new set of data has overwritten the previous set
+#define LIS2DH_STATUS_ZOR       0x40      // Z overrun
+#define LIS2DH_STATUS_YOR       0x20      // Y overrun
+#define LIS2DH_STATUS_XOR       0x10      // X overrun
+#define LIS2DH_STATUS_ZYXDA     0x08      // X, Y, Z data available => a new set of data is availbale
+#define LIS2DH_STATUS_ZDA       0x04      // Z data available
+#define LIS2DH_STATUS_YDA       0x02      // Y data available
+#define LIS2DH_STATUS_XDA       0x01      // X data available
 
 // FIFO_CTRL_REG masks
 #define LIS2DH_FM_MASK      0xC0
@@ -287,7 +300,25 @@ class LIS2DH {
     bool disableAxisXYZ(void);
     bool enableInterruptInt1(uint8_t _int);
     bool disableInterruptInt1(uint8_t _int);
-    
+    bool enableInterruptInt2(uint8_t _int);
+    bool disableInterruptInt2(uint8_t _int);
+    bool disableAllInterrupt();
+    bool setInterruptPolarity(uint8_t polarity);
+    bool setLittleEndian();
+    bool setBitEndian();
+    bool setContinuousUpdate(bool continuous);
+    bool setAccelerationScale(uint8_t scale);
+    bool setHighResolutionMode(bool hr);
+    bool isHighResolutionMode();
+
+    bool reboot();
+    bool enableFifo(bool enable);
+    bool enableLatchInterrupt1(bool enable);
+    bool enableLatchInterrupt2(bool enable);
+
+    bool setReference(uint8_t ref);
+    uint8_t getDataStatus();
+
  private:
     bool writeRegister(const uint8_t register_addr, const uint8_t value);
     bool writeRegisters(const uint8_t msb_register, const uint8_t msb_value, const uint8_t lsb_register, const uint8_t lsb_value);
