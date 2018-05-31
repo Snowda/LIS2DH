@@ -40,7 +40,7 @@ bool LIS2DH::init(void) {
       // connexion success
       // set a default configuration with 10Hz - Low Power ( 8b resolution )
       ret &= this->setDataRate(LIS2DH_ODR_10HZ);
-      ret &= this->enableLowPower();
+      ret &= this->setResolutionMode(LIS2DH_RESOLUTION_8B);
       ret &= this->setAccelerationScale(LIS2DH_FS_SCALE_2G);
 
       // shutdown interrupt
@@ -48,6 +48,7 @@ bool LIS2DH::init(void) {
 
       // enable all the axis
       ret &= this->enableAxisXYZ();
+      ret &= this->setFiFoMode(LIS2DH_FM_BYPASS);
 
       // set highpass filter (Reset when reading xhlREFERENCE register)
       // activate High Pass filter on Output and Int1
@@ -97,6 +98,29 @@ int16_t LIS2DH::getAxisZ(void) {
   return readRegisters(LIS2DH_OUT_Z_H, LIS2DH_OUT_Z_L);
 }
 
+
+/** Read the X axis registers ( 8bit mode)
+ * @see LIS2DH_OUT_X_L
+ */
+int8_t LIS2DH::getAxisX_LR(void) {
+  return readRegister(LIS2DH_OUT_X_L);
+}
+
+
+/** Read the Y axis registers ( 8bit mode)
+ * @see LIS2DH_OUT_Y_L
+ */
+int8_t LIS2DH::getAxisY_LR(void) {
+  return readRegister(LIS2DH_OUT_Y_L);
+}
+
+/** Read the Z axis registers ( 8bit mode)
+ * @see LIS2DH_OUT_Z_L
+ */
+int8_t LIS2DH::getAxisZ_LR(void) {
+  return readRegister(LIS2DH_OUT_Z_L);
+}
+
 /** Read the all axis registers
  * @see getAxisZ()
  * @see getAxisY()
@@ -108,7 +132,97 @@ void LIS2DH::getMotion(int16_t* ax, int16_t* ay, int16_t* az) {
     *az = getAxisZ();
 }
 
+void LIS2DH::getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az) {
+    *ax = getAxisX_LR();
+    *ay = getAxisY_LR();
+    *az = getAxisZ_LR();
+}
 
+/**
+ * Return the accelaration in mg taking into account
+ * the given
+ * - Resolution ( 8,10,12 bits)
+ * - Scale - see LIS2DH_FS_SCALE_XG
+ * The result is given in mG
+ */
+bool LIS2DH::getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az) {
+
+  if ( resolution > LIS2DH_RESOLUTION_MAXVALUE || scale > LIS2DH_FS_MAXVALUE ) return false;
+
+  int16_t maxValue;
+  int32_t x,y,z;
+  bool    ret = true;
+  switch ( resolution ) {
+     case LIS2DH_RESOLUTION_8B:
+          int8_t _x,_y,_z;
+          this->getMotion_LR(&_x,&_y,&_z);
+          x=_x;
+          y=_y;
+          z=_z;
+          maxValue = 256;
+          break;
+    case LIS2DH_RESOLUTION_10B:
+          int16_t __x,__y,__z;
+          this->getMotion(&__x,&__y,&__z);
+          x=__x;
+          y=__y;
+          z=__z;
+          maxValue = 1024;
+          break;
+    case LIS2DH_RESOLUTION_12B:
+          this->getMotion(&__x,&__y,&__z);
+          x=__x;
+          y=__y;
+          z=__z;
+          maxValue = 4096;
+          break;
+  }
+
+  switch ( scale) {
+    case LIS2DH_FS_SCALE_2G:
+         *ax = (x*2000)/maxValue; 
+         *ay = (y*2000)/maxValue; 
+         *az = (z*2000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_4G:
+         *ax = (x*4000)/maxValue; 
+         *ay = (y*4000)/maxValue; 
+         *az = (z*4000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_8G:
+         *ax = (x*8000)/maxValue; 
+         *ay = (y*8000)/maxValue; 
+         *az = (z*8000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_16G:
+         *ax = (x*16000)/maxValue; 
+         *ay = (y*16000)/maxValue; 
+         *az = (z*16000)/maxValue; 
+         break;            
+  }
+
+  return ret;
+}
+
+
+/**
+ * Return the accelaration force in mg over all axis
+ * Given
+ * - Resolution ( 8,10,12 bits)
+ * - Scale - see LIS2DH_FS_SCALE_XG
+ * The result is given in mG
+ */
+bool LIS2DH::getAccelerationForce(const uint8_t resolution, const uint8_t scale, uint16_t * force) {
+  if ( resolution > LIS2DH_RESOLUTION_MAXVALUE || scale > LIS2DH_FS_MAXVALUE ) return false;
+  int16_t x,y,z;
+  bool ret = this->getAcceleration(resolution, scale,&x,&y,&z);
+  uint32_t _force = (int32_t)x*x + (int32_t)y*y + (int32_t)z*z; 
+  _force = sqrt(_force);
+
+  *force = (uint16_t)_force;
+
+  return ret;
+}
 
 
 // ======= Temperature
@@ -170,6 +284,45 @@ bool LIS2DH::disableLowPower(void) {
 bool LIS2DH::isLowPowerEnabled(void) {
     return (    readMaskedRegister(LIS2DH_CTRL_REG1, LIS2DH_LPEN_MASK) != 0 
              && !this->isHighResolutionMode() );
+}
+
+// ========== Resolution mode
+
+/**
+ * Set the high Resolution mode
+ * HR mode 
+ */
+bool LIS2DH::setHighResolutionMode(bool hr) {
+  return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK,hr); 
+}
+
+
+bool LIS2DH::isHighResolutionMode() {
+  return ( this->readMaskedRegister(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK) != 0 );
+}
+
+
+/**
+ * Set the expected acceleration resolution in bit
+ * Possible option : LIS2DH_RESOLUTION_XXB (8,10,12)
+ * This is changing the LowPower mode and HighResolution mode
+ */
+bool LIS2DH::setResolutionMode(uint8_t res) {
+  if (res > LIS2DH_RESOLUTION_MAXVALUE) return false;
+  bool ret;
+  switch (res) {
+    default:
+    case LIS2DH_RESOLUTION_8B:
+          return this->enableLowPower();
+    case LIS2DH_RESOLUTION_10B:
+          ret = this->disableLowPower();
+          ret &= this->setHighResolutionMode(false);
+          return ret;
+    case LIS2DH_RESOLUTION_12B:
+          ret = this->disableLowPower();
+          ret &= this->setHighResolutionMode(true);
+          return ret;
+  }
 }
 
 // ========== Axis management
@@ -373,6 +526,230 @@ bool LIS2DH::enableLatchInterrupt2(bool enable) {
   return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT2_MASK,enable); 
 }
 
+/**
+ * Select trigger event trigger signal on INT1/2 
+ * See LIS2DH_TR_XXX
+ */
+bool LIS2DH::triggerSelect(uint8_t triggerMode) {
+  if(triggerMode > LIS2DH_TR_MAXVALUE) {
+        return false;
+  }
+  triggerMode = triggerMode << LIS2DH_TR_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_FIFO_CTRL_REG, LIS2DH_TR_MASK, triggerMode);
+}
+
+/**
+ * Select the interruption mode
+ * See mode : LIS2DH_INT_MODE_XXX
+ * Default mode is OR
+ * Give the interrupt 1 for INT1 and 2 for INT2
+ */
+bool LIS2DH::intWorkingMode(uint8_t _int, uint8_t _mode) {
+  if(_mode > LIS2DH_INT_MODE_MAXVALUE) {
+        return false;
+  }
+  _mode = _mode << LIS2DH_INT_MODE_SHIFT;
+  if ( _int > 2 || _int < 1 ) return false;  
+  switch (_int) {
+    case 1 : 
+        return writeMaskedRegisterI(LIS2DH_INT1_CFG, LIS2DH_INT_MODE_MASK, _mode);
+    case 2 :
+        return writeMaskedRegisterI(LIS2DH_INT2_CFG, LIS2DH_INT_MODE_MASK, _mode);
+  }
+}
+
+/**
+ * Enable the interrupt events. See list 
+ * It is possible to activate multiple interrupt event by adding them with | operator
+ * See LIS2DH_INTEVENT_XX possible events
+ * Give the interrupt 1 for INT1 and 2 for INT2
+ */
+bool LIS2DH::enableInterruptEvent(uint8_t _int, uint8_t _intEvent) {
+  if(_intEvent > LIS2DH_INTEVENT_MAXVALUE) {
+        return false;
+  }
+  _intEvent = _intEvent << LIS2DH_INTEVENT_SHIFT;
+  if ( _int > 2 || _int < 1 ) return false;  
+  switch (_int) {
+    case 1 : 
+        return writeMaskedRegisterI(LIS2DH_INT1_CFG, LIS2DH_INTEVENT_MASK, _intEvent);
+    case 2 :
+        return writeMaskedRegisterI(LIS2DH_INT2_CFG, LIS2DH_INTEVENT_MASK, _intEvent);
+  }
+}
+
+/**
+ * Get interrupt status
+ * Give the interrupt 1 for INT1 and 2 for INT2 as parameter
+ */
+bool LIS2DH::isInterruptFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_INT_IA_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_INT_IA_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptZHighFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_ZH_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_ZH_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptZLowFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_ZL_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_ZL_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptYHighFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_YH_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_YH_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptYLowFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_YL_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_YL_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptXHighFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_XH_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_XH_MASK) != 0); 
+  }
+}
+
+bool LIS2DH::isInterruptXLowFired(uint8_t _int) {
+  if ( _int > 2 || _int < 1 ) return false; 
+  switch(_int) {
+    case 1: return (readMaskedRegister(LIS2DH_INT1_SOURCE, LIS2DH_XL_MASK) != 0);
+    case 2: return (readMaskedRegister(LIS2DH_INT2_SOURCE, LIS2DH_XL_MASK) != 0); 
+  }
+}
+
+/**
+ * Set the interrupt Threshold on selected axis
+ * his value is used for High and Low value comparison on any axis to generate an interruption
+ * This function write raw value. You can use the setInterruptThresholdMg function to set it in mG
+ */
+bool LIS2DH::setInterruptThreshold(uint8_t _int, uint8_t raw) {
+  if(raw > LIS2DH_THS_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_THS_SHIFT;
+  if ( _int > 2 || _int < 1 ) return false;  
+  switch (_int) {
+    case 1 : 
+        return writeMaskedRegisterI(LIS2DH_INT1_THS, LIS2DH_THS_MASK, raw);
+    case 2 :
+        return writeMaskedRegisterI(LIS2DH_INT2_THS, LIS2DH_THS_MASK, raw);
+  }
+}
+
+/**
+ * Set the interrupt Threshold for selected axis in Mg. The scale is given as parameter
+ * LIS2DH_FS_SCALE_ 2/4/8/16 G
+ * Step is 16mG @ 2G / 32mG @ 4G / 62mG @ 8g / 186mG à 16G
+ */
+bool LIS2DH::setInterruptThresholdMg(uint8_t _int, uint8_t mg, const uint8_t scale) {
+  uint8_t raw = 0;
+  if ( scale > LIS2DH_FS_MAXVALUE ) return false;
+  
+  switch ( scale ) {
+    case LIS2DH_FS_SCALE_2G:
+        raw = mg / 16;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_4G:
+        raw = mg / 32;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_8G:
+        raw = mg / 62;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_16G:
+        raw = mg / 186;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+  }
+  return this->setInterruptThreshold(_int,raw);
+}
+
+/**
+ * Duration of the interrupt, the duration is function
+ * of ODR value -> 1 lsb = 1/ODR
+ */
+bool LIS2DH::setInterruptDuration(uint8_t _int, uint8_t raw) {
+  if(raw > LIS2DH_DUR_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_DUR_SHIFT;
+  if ( _int > 2 || _int < 1 ) return false;  
+  switch (_int) {
+    case 1 : 
+        return writeMaskedRegisterI(LIS2DH_INT1_DURATION, LIS2DH_D_MASK, raw);
+    case 2 :
+        return writeMaskedRegisterI(LIS2DH_INT2_DURATION, LIS2DH_D_MASK, raw);
+  }
+}
+
+/**
+ * Set the interrupt duration in Ms. The ODR value is given as parameter
+ * LIS2DH_ODR_ 1/10/25...1620 HZ
+ * step is 1/ODR
+ */
+bool LIS2DH::setInterruptDurationMs(uint8_t _int, uint32_t ms, const uint8_t odr) {
+  uint8_t raw = 0;
+  if ( odr >= LIS2DH_ODR_MAXVALUE ) return false;
+  
+  switch ( odr ) {
+    case LIS2DH_ODR_1HZ:
+        raw = (uint8_t)(ms / 1000);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_10HZ:
+        raw = (uint8_t)(ms / 100);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_25HZ:
+        raw = (uint8_t)(ms / 40);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_50HZ:
+        raw = (uint8_t)(ms / 20);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_100HZ:
+        raw = (uint8_t)(ms / 10);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_200HZ:
+        raw = (uint8_t)(ms / 5);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_400HZ:
+        raw = (uint8_t)((ms * 2) / 5) ;
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_1620HZ:
+        raw = (uint8_t)((ms * 1000) / 617);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+  }
+  return this->setInterruptDuration(_int,raw);
+}
 
 
 // ========== Misc settings
@@ -413,18 +790,6 @@ bool LIS2DH::setAccelerationScale(uint8_t scale) {
     return writeMaskedRegisterI(LIS2DH_CTRL_REG4, LIS2DH_FS_MASK, scale);
 }
 
-/**
- * Set the high Resolution mode
- * HR mode 
- */
-bool LIS2DH::setHighResolutionMode(bool hr) {
-  return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK,hr); 
-}
-
-
-bool LIS2DH::isHighResolutionMode() {
-  return ( this->readMaskedRegister(LIS2DH_CTRL_REG4,LIS2DH_HR_MASK) != 0 );
-}
 
 /** 
  *  Reboot memory content
@@ -462,6 +827,61 @@ bool LIS2DH::setReference(uint8_t ref) {
  */
 uint8_t LIS2DH::getDataStatus() {
   return this->readRegister(LIS2DH_STATUS_REG2);
+}
+
+// ========= FIFO CTRL
+
+/**
+ * Select the FIFO working mode
+ * see LIS2DH_FM_XXX possible mode
+ * 
+ */
+bool LIS2DH::setFiFoMode(uint8_t fifoMode) {
+    if(fifoMode > LIS2DH_FM_MAXVALUE) {
+        return false;
+    }
+    fifoMode = fifoMode << LIS2DH_FM_SHIFT;
+    return writeMaskedRegisterI(LIS2DH_FIFO_CTRL_REG, LIS2DH_FM_MASK, fifoMode);
+}
+
+/**
+ * Set the Fifo Threshold : as soon as this level of data is filled in FiFo the
+ * Threshold event is triggered for reading
+ * This is used for reading FiFo before it overrun.
+ * The value is from 0 to 31.
+ */
+bool LIS2DH::setFiFoThreshold(uint8_t threshold) {
+  if ( threshold > LIS2DH_FTH_MAXVALUE ) return false;
+  threshold <<= LIS2DH_FTH_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_FIFO_CTRL_REG, LIS2DH_FTH_MASK, threshold);
+}
+
+/**
+ * Return true when FIFO watermark level exceeded
+ */
+bool LIS2DH::isFiFoWatermarkExceeded() {
+  return ( this->readMaskedRegister(LIS2DH_FIFO_SRC_REG, LIS2DH_WTM_MASK) > 0 ); 
+}
+
+/**
+ * Return true when the FIFO is full => 32 unread samples
+ */
+bool LIS2DH::isFiFoFull() {
+  return ( this->readMaskedRegister(LIS2DH_FIFO_SRC_REG, LIS2DH_OVRN_FIFO_MASK) > 0 ); 
+}
+
+/**
+ * Return true when the FIFO is empty 
+ */
+bool LIS2DH::isFiFoEmpty() {
+  return ( this->readMaskedRegister(LIS2DH_FIFO_SRC_REG, LIS2DH_EMPTY_MASK) > 0 ); 
+}
+
+/**
+ * Return the number of sample actually in the FiFo
+ */
+uint8_t LIS2DH::getFiFoSize() {
+  return this->readMaskedRegister(LIS2DH_FIFO_SRC_REG, LIS2DH_FSS_MASK);
 }
 
 // -----------------------------------------------------
