@@ -286,6 +286,69 @@ bool LIS2DH::isLowPowerEnabled(void) {
              && !this->isHighResolutionMode() );
 }
 
+/**
+ * Select the activity level that wake the sensor up from sleep mode.
+ * This is for low_power mode. When this level of activity is identify
+ * the ensor is waking up. Under, it goes to sleep
+ * The unit depends on the Scale factor. you can use setSleepNWakeUpThresholdMg instead
+ */
+bool LIS2DH::setSleepNWakeUpThreshold(uint8_t raw) {
+  if(raw > LIS2DH_ACT_THS_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_ACT_THS_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_ACT_THS, LIS2DH_ACT_THS_MASK, raw);
+}
+
+/**
+ * Select the activity level that wake the sensor up from sleep mode in Mg. 
+ * The scale is given as parameter LIS2DH_FS_SCALE_ 2/4/8/16 G
+ * Step is 16mG @ 2G / 32mG @ 4G / 62mG @ 8g / 186mG à 16G
+ */
+bool LIS2DH::setSleepNWakeUpThresholdMg( uint8_t mg, const uint8_t scale) {
+  uint8_t raw = 0;
+  if ( scale > LIS2DH_FS_MAXVALUE ) return false;
+
+  if ( this->convertMgToRaw(&raw, mg, scale) ) {
+    return this->setSleepNWakeUpThreshold(raw);
+  }
+  return false;
+}
+
+/**
+ * Select the Activity duration for sleep to wake and return to sleep duration
+ * This is for low_power mode.
+ * The unit depends on the ODR factor. see LIS2DH_ODR_ 1/10/25...1620 HZ 
+ * You can use setSleepNWakeUpDurationMs instead
+ */
+bool LIS2DH::setSleepNWakeUpDuration(uint8_t raw) {
+  if(raw > LIS2DH_ACT_DUR_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_ACT_DUR_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_ACT_DUR, LIS2DH_ACT_DUR_MASK, raw);
+}
+
+/**
+ * Select the Sleep and Wake-up activity duration from a duration given in Ms
+ * The duration is S = (8*rawValue+1) / ODR
+ */
+bool LIS2DH::setSleepNWakeUpDurationMs(uint8_t _int, uint32_t ms, const uint8_t odr) {
+  uint8_t raw = 0;
+  
+  // Basically this is an approximation as I did not take +1 in consideration
+  ms = ms>>3;
+  
+  if ( convertMsToRaw(&raw, ms, odr) ) {
+    if ( raw > 0 ) raw--; // this is to take -1 in consideration.
+    return this->setInterruptDuration(_int,raw);
+  } else {
+    return false;
+  }
+}
+
+
+
 // ========== Resolution mode
 
 /**
@@ -665,26 +728,11 @@ bool LIS2DH::setInterruptThreshold(uint8_t _int, uint8_t raw) {
 bool LIS2DH::setInterruptThresholdMg(uint8_t _int, uint8_t mg, const uint8_t scale) {
   uint8_t raw = 0;
   if ( scale > LIS2DH_FS_MAXVALUE ) return false;
-  
-  switch ( scale ) {
-    case LIS2DH_FS_SCALE_2G:
-        raw = mg / 16;
-        if ( raw == 0 && mg > 0 ) return false;
-        break;
-    case LIS2DH_FS_SCALE_4G:
-        raw = mg / 32;
-        if ( raw == 0 && mg > 0 ) return false;
-        break;
-    case LIS2DH_FS_SCALE_8G:
-        raw = mg / 62;
-        if ( raw == 0 && mg > 0 ) return false;
-        break;
-    case LIS2DH_FS_SCALE_16G:
-        raw = mg / 186;
-        if ( raw == 0 && mg > 0 ) return false;
-        break;
+
+  if ( this->convertMgToRaw(&raw, mg, scale) ) {
+    return this->setInterruptThreshold(_int,raw);
   }
-  return this->setInterruptThreshold(_int,raw);
+  return false;
 }
 
 /**
@@ -712,43 +760,11 @@ bool LIS2DH::setInterruptDuration(uint8_t _int, uint8_t raw) {
  */
 bool LIS2DH::setInterruptDurationMs(uint8_t _int, uint32_t ms, const uint8_t odr) {
   uint8_t raw = 0;
-  if ( odr >= LIS2DH_ODR_MAXVALUE ) return false;
-  
-  switch ( odr ) {
-    case LIS2DH_ODR_1HZ:
-        raw = (uint8_t)(ms / 1000);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_10HZ:
-        raw = (uint8_t)(ms / 100);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_25HZ:
-        raw = (uint8_t)(ms / 40);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_50HZ:
-        raw = (uint8_t)(ms / 20);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_100HZ:
-        raw = (uint8_t)(ms / 10);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_200HZ:
-        raw = (uint8_t)(ms / 5);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_400HZ:
-        raw = (uint8_t)((ms * 2) / 5) ;
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
-    case LIS2DH_ODR_1620HZ:
-        raw = (uint8_t)((ms * 1000) / 617);
-        if ( raw == 0 && ms > 0 ) return false;
-        break;
+  if ( convertMsToRaw(&raw, ms, odr) ) {
+    return this->setInterruptDuration(_int,raw);
+  } else {
+    return false;
   }
-  return this->setInterruptDuration(_int,raw);
 }
 
 
@@ -884,6 +900,160 @@ uint8_t LIS2DH::getFiFoSize() {
   return this->readMaskedRegister(LIS2DH_FIFO_SRC_REG, LIS2DH_FSS_MASK);
 }
 
+// ======== CLICK Management
+
+/**
+ * Enable the CLICK function interrupt events. See list 
+ * It is possible to activate multiple interrupt event by adding them with | operator
+ * See LIS2DH_CLICEVENT_XXX possible events
+ * Give the interrupt 1 for INT1 and 2 for INT2
+ */
+bool LIS2DH::enableInterruptEvent(uint8_t _intEvent) {
+  if(_intEvent > LIS2DH_CLICEVENT_MAXVALUE) {
+        return false;
+  }
+  _intEvent = _intEvent << LIS2DH_CLICEVENT_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_CLICK_CFG, LIS2DH_CLICEVENT_MASK, _intEvent);
+}
+
+
+/**
+ * Get clic interrupt status
+ * Get the global information for all the interrupts
+ */
+bool LIS2DH::isClickInterruptFired() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_CLK_IA_MASK) != 0);
+}
+bool LIS2DH::isDoubleClickFired() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_DCLICK_MASK) != 0);
+}
+bool LIS2DH::isSimpleClickFired() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_SCLICK_MASK) != 0);
+}
+bool LIS2DH::isClickFiredOnZ() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_Z_CLICK_MASK) != 0);
+}
+bool LIS2DH::isClickFiredOnY() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_Y_CLICK_MASK) != 0);
+}
+bool LIS2DH::isClickFiredOnX() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_X_CLICK_MASK) != 0);
+}
+bool LIS2DH::isSignClickFired() {
+  return (readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_SIGN_MASK) != 0);
+}
+
+/**
+ * From the clic interrupt status, determine the type of pending
+ * clic interrupt
+ * see LIS2DH_CLIC_XXXX for the possible clic. Multiple clic can be
+ * reported. 1bit per clic
+ * By reading the register, the insterrup will fall depends on click_ths configuration
+ */
+uint16_t LIS2DH::getClickStatus() {
+  uint8_t clic=readMaskedRegister(LIS2DH_CLICK_SRC, LIS2DH_CLICK_SRC_MASK);
+  uint16_t ret = LIS2DH_CLIC_NONE;
+  if ( (clic & LIS2DH_CLK_IA_MASK) > 0 ) {
+    if ( (clic & LIS2DH_X_CLICK_MASK) > 0 ) {
+      if ( (clic & LIS2DH_SCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_SIN_X_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_SIN_X_POS;
+        }
+      }
+      if ( (clic & LIS2DH_DCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_DBL_X_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_DBL_X_POS;
+        }
+      }
+    }
+
+    if ( (clic & LIS2DH_Y_CLICK_MASK) > 0 ) {
+      if ( (clic & LIS2DH_SCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_SIN_Y_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_SIN_Y_POS;
+        }
+      }
+      if ( (clic & LIS2DH_DCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_DBL_Y_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_DBL_Y_POS;
+        }
+      }
+    }
+
+    if ( (clic & LIS2DH_Z_CLICK_MASK) > 0 ) {
+      if ( (clic & LIS2DH_SCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_SIN_Z_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_SIN_Z_POS;
+        }
+      }
+      if ( (clic & LIS2DH_DCLICK_MASK) > 0 ) {
+        if ( (clic & LIS2DH_SIGN_MASK ) > 0 ) {
+          ret |= LIS2DH_CLIC_DBL_Z_NEG;
+        } else{
+          ret |= LIS2DH_CLIC_DBL_Z_POS;
+        }
+      }
+    }
+
+  }
+  return LIS2DH_CLIC_NONE;
+}
+
+
+
+/**
+ * Set the Click threshold. The default value is zero.
+ * The pretty poor documentation do not gives unit for 
+ * this paramtere.
+ * We could imagine it is the same as interrupt threshold :
+ * Step is 16mG @ 2G / 32mG @ 4G / 62mG @ 8g / 186mG à 16G 
+ * but this needs to be confirmed.
+ */
+bool LIS2DH::setClickThreshold(uint8_t ths) {
+  if(ths > LIS2DH_CLK_THS_MAXVALUE) {
+        return false;
+  }
+  ths = ths << LIS2DH_CLK_THS_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_CLICK_THS, LIS2DH_CLK_THS_MASK, ths);
+}
+
+bool LIS2DH::setClickThresholdMg(uint16_t mg, const uint8_t scale) {
+  // Not having information of the threshold unit it is not possible 
+  // to make this function working correctly.
+  // Any information is welcome to correctly implement it.
+  // Actally assuming it works like the other functions...
+  uint8_t raw = 0;
+  if ( scale > LIS2DH_FS_MAXVALUE ) return false;
+
+  if ( this->convertMgToRaw(&raw, mg, scale) ) {
+    return this->setClickThreshold(raw);
+  }
+  return false;
+}
+
+/**
+ * Set the Interrupt mode for click
+ * It can be LIS2DH_CLK_INTDUR_UNTILREAD ( interrupt pending unteil CLICK_SRC register read )
+ * or LIS2DH_CLK_INTDUR_LATWINDOW ( interrupt cancel afet TIME_LATENCY duration
+ */
+bool LIS2DH::setClickInterruptMode(uint8_t _mode) {
+  if(_mode > LIS2DH_CLK_INTDUR_MAXVALUE) {
+        return false;
+  }
+  _mode = _mode << LIS2DH_CLK_INTDUR_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_CLICK_THS, LIS2DH_CLK_INTDUR_MASK, _mode);
+}
+
 // -----------------------------------------------------
 // Write to LIS2DH
 // -----------------------------------------------------
@@ -940,7 +1110,7 @@ bool LIS2DH::writeMaskedRegisterI(const int register_addr, const int mask, const
 }
 
 // -----------------------------------------------------
-// Read to LIS2DH
+// Read from LIS2DH
 // -----------------------------------------------------
 
 /**
@@ -971,4 +1141,94 @@ uint16_t LIS2DH::readRegisters(const uint8_t msb_register, const uint8_t lsb_reg
 uint8_t LIS2DH::readMaskedRegister(const uint8_t register_addr, const uint8_t mask) {
     uint8_t data = readRegister(register_addr);
     return (data & mask);
+}
+
+// ----------------------------------------------------
+// Internal common converters
+// ----------------------------------------------------
+
+/**
+ * From a scale LIS2DH_FS_SCALE_ 2/4/8/16 G value, return
+ * the Raw equivalent value to the given mG
+ * Step is 16mG @ 2G / 32mG @ 4G / 62mG @ 8g / 186mG à 16G
+ * The result is return to _raw 
+ * Returns false in case of convertion error
+ */
+bool LIS2DH::convertMgToRaw(uint8_t * _raw, uint16_t mg, uint8_t scale) {
+  uint16_t raw;
+  switch ( scale ) {
+    case LIS2DH_FS_SCALE_2G:
+        raw = mg / 16;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_4G:
+        raw = mg / 32;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_8G:
+        raw = mg / 62;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+    case LIS2DH_FS_SCALE_16G:
+        raw = mg / 186;
+        if ( raw == 0 && mg > 0 ) return false;
+        break;
+  }
+  if ( raw < 256 ) {
+    *_raw = (uint8_t)raw;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+/**
+ * Convert a duration in Ms to a raw duration based on the ODR value given as parameter
+ * LIS2DH_ODR_ 1/10/25...1620 HZ
+ * step is 1/ODR
+ */
+bool LIS2DH::convertMsToRaw(uint8_t * _raw, uint32_t ms, const uint8_t odr) {
+  uint8_t raw = 0;
+  if ( odr >= LIS2DH_ODR_MAXVALUE ) return false;
+  
+  switch ( odr ) {
+    case LIS2DH_ODR_1HZ:
+        raw = (uint8_t)(ms / 1000);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_10HZ:
+        raw = (uint8_t)(ms / 100);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_25HZ:
+        raw = (uint8_t)(ms / 40);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_50HZ:
+        raw = (uint8_t)(ms / 20);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_100HZ:
+        raw = (uint8_t)(ms / 10);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_200HZ:
+        raw = (uint8_t)(ms / 5);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_400HZ:
+        raw = (uint8_t)((ms * 2) / 5) ;
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+    case LIS2DH_ODR_1620HZ:
+        raw = (uint8_t)((ms * 1000) / 617);
+        if ( raw == 0 && ms > 0 ) return false;
+        break;
+  }
+  if ( raw < 256 ) {
+    *_raw = (uint8_t)raw;
+    return true;
+  } else {
+    return false;
+  }
 }

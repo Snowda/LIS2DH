@@ -260,18 +260,58 @@
 #define LIS2DH_YS_MASK      0x04
 #define LIS2DH_XD_MASK      0x02
 #define LIS2DH_XS_MASK      0x01
+#define LIS2DH_CLICEVENT_MASK         0x3F      // Interrupt mask
+
+#define LIS2DH_CLICEVENT_SHIFT        0
+#define LIS2DH_CLICEVENT_DBLE_Z       0x20      // Fire interrupt when detect double clic on Z - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_SINGLE_Z     0x10      // Fire interrupt when detect single clic on Z - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_DBLE_Y       0x08      // Fire interrupt when detect double clic on Y - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_SINGLE_Y     0x04      // Fire interrupt when detect single clic on Y - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_DBLE_X       0x02      // Fire interrupt when detect double clic on X - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_SINGLE_X     0x01      // Fire interrupt when detect single clic on X - based on getting higher accel than the preset threshold
+#define LIS2DH_CLICEVENT_MAXVALUE     0x3F
+
 
 // CLICK_SRC masks
-#define LIS2DH_CLK_IA_MASK    0x40
-#define LIS2DH_DCLICK_MASK    0x20
-#define LIS2DH_SCLICK_MASK    0x10
-#define LIS2DH_SIGN_MASK    0x08
-#define LIS2DH_Z_CLICK_MASK   0x04
-#define LIS2DH_Y_CLICK_MASK   0x02
-#define LIS2DH_X_CLICK_MASK   0x01
+                                        // Basically we have 6 axis (X,Y,Z) in both positive and negative direction
+                                        // we also have two type of clics => Single and Double
+                                        // This set of bit allow to identify all these different kind of clics
+                                        
+#define LIS2DH_CLK_IA_MASK    0x40      // An interrupt is active on one of the following bits
+#define LIS2DH_DCLICK_MASK    0x20      // Double clic detected 
+#define LIS2DH_SCLICK_MASK    0x10      // Single clic detected
+#define LIS2DH_SIGN_MASK      0x08      // 0 - Positive detection / 1 - Negative detection (direction of the clic)
+#define LIS2DH_Z_CLICK_MASK   0x04      // Clic on Z axis
+#define LIS2DH_Y_CLICK_MASK   0x02      // Clic on Y axis
+#define LIS2DH_X_CLICK_MASK   0x01      // Clic on X axis
+#define LIS2DH_CLICK_SRC_MASK 0x7F
+
+#define LIS2DH_CLIC_NONE        0x0000  // For each of the possible clic combination. ( they can be cumulated )
+#define LIS2DH_CLIC_DBL_X_POS   0x0001
+#define LIS2DH_CLIC_DBL_X_NEG   0x0002
+#define LIS2DH_CLIC_SIN_X_POS   0x0004
+#define LIS2DH_CLIC_SIN_X_NEG   0x0008
+#define LIS2DH_CLIC_DBL_Y_POS   0x0010
+#define LIS2DH_CLIC_DBL_Y_NEG   0x0020
+#define LIS2DH_CLIC_SIN_Y_POS   0x0040
+#define LIS2DH_CLIC_SIN_Y_NEG   0x0080
+#define LIS2DH_CLIC_DBL_Z_POS   0x0100
+#define LIS2DH_CLIC_DBL_Z_NEG   0x0200
+#define LIS2DH_CLIC_SIN_Z_POS   0x0400
+#define LIS2DH_CLIC_SIN_Z_NEG   0x0800
+
+
 
 // CLICK_THS masks
-#define LIS2DH_CLK_THS_MASK   0x7F
+#define LIS2DH_CLK_THS_MASK       0x7F
+#define LIS2DH_CLK_THS_SHIFT      0
+#define LIS2DH_CLK_THS_MAXVALUE   0x7F
+
+#define LIS2DH_CLK_INTDUR_MASK        0x80
+#define LIS2DH_CLK_INTDUR_SHIFT       7
+#define LIS2DH_CLK_INTDUR_UNTILREAD   0x00    // Click interrupt is pending until the register CLICK_SRC has been read
+#define LIS2DH_CLK_INTDUR_LATWINDOW   0x01    // Click interrupt is automatically cancel after the latency window duration ( TIME_LATENCY register )
+#define LIS2DH_CLK_INTDUR_MAXVALUE    0x01
 
 // TIME_LIMIT masks
 #define LIS2DH_TLI_MASK     0x7F
@@ -283,10 +323,16 @@
 // none
 
 // ACT_THS masks
-#define LIS2DH_ACTH_MASK    0x7F
+#define LIS2DH_ACT_THS_MASK       0x7F
+#define LIS2DH_ACT_THS_SHIFT      0
+#define LIS2DH_ACT_THS_MAXVALUE   0x7F
 
 // ACT_DUR masks
-// None
+#define LIS2DH_ACT_DUR_MASK       0xFF
+#define LIS2DH_ACT_DUR_SHIFT      0
+#define LIS2DH_ACT_DUR_MAXVALUE   0xFF
+
+
 #define LIS2DH_DEFAULT_ADDRESS  0x18
 
 #define LIS2DH_LIS2DH_SA0_LOW     LIS2DH_DEFAULT_ADDRESS
@@ -321,6 +367,11 @@ class LIS2DH {
     bool enableLowPower(void);
     bool disableLowPower(void);
     bool isLowPowerEnabled(void);
+    bool setSleepNWakeUpThreshold(uint8_t raw);
+    bool setSleepNWakeUpThresholdMg( uint8_t mg, const uint8_t scale);
+    bool setSleepNWakeUpDuration(uint8_t raw);
+    bool setSleepNWakeUpDurationMs(uint8_t _int, uint32_t ms, const uint8_t odr);
+    
     bool enableAxisX(void);
     bool disableAxisX(void);
     bool isXAxisEnabled(void);
@@ -393,6 +444,18 @@ class LIS2DH {
     bool isFiFoEmpty();
     uint8_t getFiFoSize();
 
+    bool enableInterruptEvent(uint8_t _intEvent);
+    bool isClickInterruptFired();
+    bool isDoubleClickFired();
+    bool isSimpleClickFired();
+    bool isClickFiredOnZ();
+    bool isClickFiredOnY();
+    bool isClickFiredOnX();
+    bool isSignClickFired();
+    uint16_t getClickStatus();
+    bool setClickThreshold(uint8_t ths);
+    bool setClickThresholdMg(uint16_t mg, const uint8_t scale);
+    bool setClickInterruptMode(uint8_t _mode);
  
  private:
     bool writeRegister(const uint8_t register_addr, const uint8_t value);
@@ -402,7 +465,9 @@ class LIS2DH {
     uint8_t  readRegister(const uint8_t register_addr);
     uint16_t readRegisters(const uint8_t msb_register, const uint8_t lsb_register);
     uint8_t  readMaskedRegister(const uint8_t register_addr, const uint8_t mask);
-
+    
+    bool convertMgToRaw(uint8_t * _raw, uint16_t mg, uint8_t scale);
+    bool convertMsToRaw(uint8_t * _raw, uint32_t ms, const uint8_t odr);
     uint8_t _address;
 };
 
