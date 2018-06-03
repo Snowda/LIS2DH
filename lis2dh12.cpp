@@ -227,6 +227,14 @@ bool LIS2DH::getAccelerationForce(const uint8_t resolution, const uint8_t scale,
 
 // ======= Temperature
 
+/**
+ * Temperature is 8bit usually but it switch to 10bits if LPen bit in CTRL_REG1 is 
+ * cleared (high resolution mode). In this mode the way to decode the temperature
+ * is not documented in the datasheet. Test and function modification will be needed
+ * ...Temperature refresh is ODR.
+ * @TODO ...
+ */
+
 bool LIS2DH::getTempEnabled(void) {
     return (readMaskedRegister(LIS2DH_TEMP_CFG_REG, LIS2DH_TEMP_EN_MASK) != 0);
 }
@@ -287,9 +295,9 @@ bool LIS2DH::isLowPowerEnabled(void) {
 }
 
 /**
- * Select the activity level that wake the sensor up from sleep mode.
- * This is for low_power mode. When this level of activity is identify
- * the ensor is waking up. Under, it goes to sleep
+ * Select the activity level that wake the sensor up from low_power mode.
+ * This is for mode other than low_power. When this level of activity is identify
+ * the sensor is waking up to the normal mode you set. Under, it goes to low-power mode
  * The unit depends on the Scale factor. you can use setSleepNWakeUpThresholdMg instead
  */
 bool LIS2DH::setSleepNWakeUpThreshold(uint8_t raw) {
@@ -301,7 +309,7 @@ bool LIS2DH::setSleepNWakeUpThreshold(uint8_t raw) {
 }
 
 /**
- * Select the activity level that wake the sensor up from sleep mode in Mg. 
+ * Select the activity level that wake the sensor up from low-power mode in Mg. 
  * The scale is given as parameter LIS2DH_FS_SCALE_ 2/4/8/16 G
  * Step is 16mG @ 2G / 32mG @ 4G / 62mG @ 8g / 186mG à 16G
  */
@@ -316,8 +324,8 @@ bool LIS2DH::setSleepNWakeUpThresholdMg( uint8_t mg, const uint8_t scale) {
 }
 
 /**
- * Select the Activity duration for sleep to wake and return to sleep duration
- * This is for low_power mode.
+ * Select the Activity duration for low-power to wake up and return to low-power duration
+ * This is for mode other than low_power.
  * The unit depends on the ODR factor. see LIS2DH_ODR_ 1/10/25...1620 HZ 
  * You can use setSleepNWakeUpDurationMs instead
  */
@@ -1053,6 +1061,59 @@ bool LIS2DH::setClickInterruptMode(uint8_t _mode) {
   _mode = _mode << LIS2DH_CLK_INTDUR_SHIFT;
   return writeMaskedRegisterI(LIS2DH_CLICK_THS, LIS2DH_CLK_INTDUR_MASK, _mode);
 }
+
+/**
+ * Set the Time limit -> due to a lack of documentation in the datasheet and application notes
+ * It is hard to say what is this register and what is the unit to use in the register 
+ * (Question to ST : how can you such bad for documentation ?)
+ * I assume time limit is the maximum time to detect a clic or double clic, but starting from ?
+ */
+bool LIS2DH::setClickTimeLimit(uint8_t raw){
+  if(raw > LIS2DH_TLI_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_TLI_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_TIME_LIMIT, LIS2DH_TLI_MASK, raw);
+}
+
+/**
+ * Set the Time latency for click -> due to a lack of documentation in the datasheet and application notes
+ * It is hard to say what is this register and what is the unit to use in the register 
+ * (Question to ST : how can you such bad for documentation ?)
+ * I do not know what this timer do
+ */
+bool LIS2DH::setClickTimeLatency(uint8_t raw){
+  if(raw > LIS2DH_TIME_LATENCY_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_TIME_LATENCY_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_TIME_LATENCY, LIS2DH_TIME_LATENCY_MASK, raw);
+} 
+
+
+/**
+ * Set the Time Window for click -> due to a lack of documentation in the datasheet and application notes
+ * It is hard to say what is this register and what is the unit to use in the register 
+ * (Question to ST : how can you such bad for documentation ?)
+ * I do not know what this timer do
+ */
+bool LIS2DH::setClickTimeWindow(uint8_t raw){
+  if(raw > LIS2DH_TIME_WINDOW_MAXVALUE) {
+        return false;
+  }
+  raw = raw << LIS2DH_TIME_WINDOW_SHIFT;
+  return writeMaskedRegisterI(LIS2DH_TIME_WINDOW, LIS2DH_TIME_WINDOW_MASK, raw);
+} 
+
+
+// ======== 4D/6D Device Positionning
+
+/**
+ * Honestly even if the documentation is claiming this feature exists in the device, 
+ * for real, there is no information on How you can get it from the registers.
+ * If some developpers find a way to use it, let me know.
+ */
+
 
 // -----------------------------------------------------
 // Write to LIS2DH

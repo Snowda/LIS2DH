@@ -13,6 +13,11 @@ Library was uncomplete and no working. Not updated since 2014.
 I'm updating it to make it a fully working library for LIS2DH.
 Actually the library is supporting most of the register configuration in raw mode and user friendly mode.
 Have fun with It ! 
+
+The functions related to Clicks detection and 6D/4D positionning are not fully documented due to the really poor
+quality of the ST Datasheet. I don't think I already had such uncompleted and badly written document.
+So any help on these feature is welcome.
+
 www.disk91.com
 
 ======================

@@ -314,13 +314,19 @@
 #define LIS2DH_CLK_INTDUR_MAXVALUE    0x01
 
 // TIME_LIMIT masks
-#define LIS2DH_TLI_MASK     0x7F
+#define LIS2DH_TLI_MASK               0x7F
+#define LIS2DH_TLI_SHIFT              0
+#define LIS2DH_TLI_MAXVALUE           0x7F
 
 // TIME_LATENCY masks
-// none
+#define LIS2DH_TIME_LATENCY_MASK         0xFF
+#define LIS2DH_TIME_LATENCY_SHIFT        0
+#define LIS2DH_TIME_LATENCY_MAXVALUE     0xFF
 
 // TIME_WINDOW masks
-// none
+#define LIS2DH_TIME_WINDOW_MASK          0xFF
+#define LIS2DH_TIME_WINDOW_SHIFT         0
+#define LIS2DH_TIME_WINDOW_MAXVALUE      0xFF
 
 // ACT_THS masks
 #define LIS2DH_ACT_THS_MASK       0x7F
@@ -456,7 +462,10 @@ class LIS2DH {
     bool setClickThreshold(uint8_t ths);
     bool setClickThresholdMg(uint16_t mg, const uint8_t scale);
     bool setClickInterruptMode(uint8_t _mode);
- 
+    bool setClickTimeLimit(uint8_t raw);
+    bool setClickTimeLatency(uint8_t raw);
+    bool setClickTimeWindow(uint8_t raw);
+
  private:
     bool writeRegister(const uint8_t register_addr, const uint8_t value);
     bool writeRegisters(const uint8_t msb_register, const uint8_t msb_value, const uint8_t lsb_register, const uint8_t lsb_value);
