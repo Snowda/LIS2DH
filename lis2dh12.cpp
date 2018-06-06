@@ -48,7 +48,7 @@ bool LIS2DH::init(void) {
 
       // enable all the axis
       ret &= this->enableAxisXYZ();
-      ret &= this->setFiFoMode(LIS2DH_FM_BYPASS);
+      ret &= this->setFiFoMode(LIS2DH_FM_STREAM);
 
       // set highpass filter (Reset when reading xhlREFERENCE register)
       // activate High Pass filter on Output and Int1
@@ -56,12 +56,8 @@ bool LIS2DH::init(void) {
       ret &= this->setHPFilterCutOff(LIS2DH_HPCF_ODR_50); // 0.2Hz high pass Fcut
       ret &= this->EnableHPFDS();
       ret &= this->EnableHPIA1();
-      ret &= this->EnableHPClick();
-
-
-      
-    } else return false;
-        
+      ret &= this->EnableHPClick();      
+    } else return false;      
 }
 
 
@@ -137,6 +133,39 @@ void LIS2DH::getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az) {
     *ay = getAxisY_LR();
     *az = getAxisZ_LR();
 }
+
+/**
+ * Read the Fifo buffer until empty. Load the result into a
+ * int8_t [size][3] table and return the number of element
+ * loaded in the table.
+ */
+uint8_t LIS2DH::getPendingMotions_LR( int8_t * _buffer, uint8_t size) {
+  int8_t (*buffer)[3] = (int8_t (*)[3]) _buffer;  
+  int sz = this->getFiFoSize();
+  for ( int i = 0 ; i < sz ; i++ ) {
+    buffer[i][0] = getAxisX_LR();
+    buffer[i][1] = getAxisY_LR();
+    buffer[i][2] = getAxisZ_LR();
+  }
+  return sz;
+}
+
+/**
+ * Read the Fifo buffer until empty. Load the result into a
+ * int16_t [size][3] table and return the number of element
+ * loaded in the table. => Full resolution
+ */
+uint8_t LIS2DH::getPendingMotions( int16_t * _buffer, uint8_t size) {
+  int16_t (*buffer)[3] = (int16_t (*)[3]) _buffer;  
+  int sz = this->getFiFoSize();
+  for ( int i = 0 ; i < sz ; i++ ) {
+    buffer[i][0] = getAxisX();
+    buffer[i][1] = getAxisY();
+    buffer[i][2] = getAxisZ();
+  }
+  return sz;
+}
+
 
 /**
  * Return the accelaration in mg taking into account
@@ -1126,7 +1155,7 @@ bool LIS2DH::writeRegister(const uint8_t register_addr, const uint8_t value) {
     Wire.beginTransmission(_address); //open communication with 
     Wire.write(register_addr);  
     Wire.write(value); 
-    return Wire.endTransmission(); 
+    return (Wire.endTransmission(true) == 0); 
 }
 
 /**

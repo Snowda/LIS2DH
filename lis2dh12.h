@@ -351,14 +351,17 @@ class LIS2DH {
     LIS2DH(uint8_t);
     bool init(void);
 
-    int16_t getAxisX(void);
-    int16_t getAxisY(void);
-    int16_t getAxisZ(void);
-    void getMotion(int16_t* ax, int16_t* ay, int16_t* az);
-    int8_t getAxisX_LR(void);
-    int8_t getAxisY_LR(void);
-    int8_t getAxisZ_LR(void);
-    void getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az);
+    int16_t getAxisX(void);                                                                                               // Get the last measured X acceleration
+    int16_t getAxisY(void);                                                                                               // Get the last measured Y acceleration
+    int16_t getAxisZ(void);                                                                                               // Get the last measured Z acceleration
+    void getMotion(int16_t* ax, int16_t* ay, int16_t* az);                                                                // Get the last measured X,Y,Z acceleration
+    uint8_t getPendingMotions( int16_t * _buffer, uint8_t size);                                                          // Get all the FiFo pending measure for X,Y,Z 
+    int8_t getAxisX_LR(void);                                                                                             // Get the last measured X acceleration in LowpoweR mode (8 bits)
+    int8_t getAxisY_LR(void);                                                                                             // Get the last measured Y acceleration in LowpoweR mode (8 bits)
+    int8_t getAxisZ_LR(void);                                                                                             // Get the last measured Z acceleration in LowpoweR mode (8 bits)
+    void getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az);                                                                // Get the last measured X,Y,Z acceleration in LowpowerR mode (8bits)
+    uint8_t getPendingMotions_LR( int8_t* _buffer, uint8_t size);                                                         // Get all the FiFo pending measure for X,Y,Z in LowpoweR mode (8bits)
+
     bool getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az);
     bool getAccelerationForce(const uint8_t resolution, const uint8_t scale, uint16_t * force);
 
