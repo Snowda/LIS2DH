@@ -349,7 +349,10 @@
 class LIS2DH {
  public:
     LIS2DH(uint8_t);
-    bool init(void);
+    bool init(void);                                                                                                      // Default Init 8b, 10Hz, 2G
+    bool init(int resolution, int frequency, int scale);
+    void dumpConfig(void);
+    void readSetting();                                                                                                   // Restore scale, resolution, frequency based on chip current config
 
     int16_t getAxisX(void);                                                                                               // Get the last measured X acceleration
     int16_t getAxisY(void);                                                                                               // Get the last measured Y acceleration
@@ -360,14 +363,17 @@ class LIS2DH {
     int8_t getAxisY_LR(void);                                                                                             // Get the last measured Y acceleration in LowpoweR mode (8 bits)
     int8_t getAxisZ_LR(void);                                                                                             // Get the last measured Z acceleration in LowpoweR mode (8 bits)
     void getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az);                                                                // Get the last measured X,Y,Z acceleration in LowpowerR mode (8bits)
-    uint8_t getPendingMotions_LR( int8_t* _buffer, uint8_t size);                                                         // Get all the FiFo pending measure for X,Y,Z in LowpoweR mode (8bits)
+    uint8_t getPendingMotions_LR( int8_t * _buffer, uint8_t size);                                                        // Get all the FiFo pending measure for X,Y,Z in LowpoweR mode (8bits)
+    uint8_t getPendingAcceleration( int16_t * _buffer, uint8_t size);                                                     // Get all the Fifo pending measure in Mg ( x,y,z )
+    uint8_t getPendingForces( int16_t * _buffer, uint8_t size);                                                           // Get all the Fifo pending measure into a force in Mg array |A|
 
-    bool getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az);
+    bool getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az);        // return acceleration in mg instead of raw values
+    bool getAcceleration(int16_t * x, int16_t * y, int16_t * z);                                                          // equivalent but use internal known config for this.
     bool getAccelerationForce(const uint8_t resolution, const uint8_t scale, uint16_t * force);
 
     bool tempHasOverrun(void);
     bool tempDataAvailable(void);
-    uint16_t getTemperature(void);
+    int16_t getTemperature(void);
     bool whoAmI(void);
     bool getTempEnabled(void);
     bool setTempEnabled(bool enable);
@@ -376,6 +382,7 @@ class LIS2DH {
     bool enableLowPower(void);
     bool disableLowPower(void);
     bool isLowPowerEnabled(void);
+    bool setPowerDown(void);
     bool setSleepNWakeUpThreshold(uint8_t raw);
     bool setSleepNWakeUpThresholdMg( uint8_t mg, const uint8_t scale);
     bool setSleepNWakeUpDuration(uint8_t raw);
@@ -434,6 +441,7 @@ class LIS2DH {
     bool setBitEndian();
     bool setContinuousUpdate(bool continuous);
     bool setAccelerationScale(uint8_t scale);
+    uint8_t getAccelerationScale();
     bool setHighResolutionMode(bool hr);
     bool isHighResolutionMode();
 
@@ -445,8 +453,10 @@ class LIS2DH {
     bool setReference(uint8_t ref);
     uint8_t getDataStatus();
     bool setResolutionMode(uint8_t res);
+    uint8_t getResolutionMode();
 
     bool setFiFoMode(uint8_t fifoMode);
+    uint8_t getFiFoMode();
     bool setFiFoThreshold(uint8_t threshold);
     bool isFiFoWatermarkExceeded();
     bool isFiFoFull();
@@ -481,6 +491,11 @@ class LIS2DH {
     bool convertMgToRaw(uint8_t * _raw, uint16_t mg, uint8_t scale);
     bool convertMsToRaw(uint8_t * _raw, uint32_t ms, const uint8_t odr);
     uint8_t _address;
+
+    uint8_t _resolution;        // store the current resolution (bits)
+    uint8_t _frequency;         // store the current frequency (Hz)
+    uint8_t _scale;             // store the current scale (xG)
+    uint8_t _fifoMode;          // store the current fifo mode
 };
 
 #endif /* _LIS2DH_H_ */
