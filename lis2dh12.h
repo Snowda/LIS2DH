@@ -221,7 +221,7 @@
 #define LIS2DH_INT_MODE_OR      0x00      // If one of the event triggers, the interrupt is fired
 #define LIS2DH_INT_MODE_AND     0x02      // When all the event have triggered, the inteerupt is fired
 #define LIS2DH_INT_MODE_MOV     0x01      // Movement recognition => when the orientation move from and unknown zone to a known zone, duration is ODR
-#define LIS2DH_INT_MODE_DIR     0x03      // Interrupt fired when the orientation is in a known zone and stay until we stay in this zone
+#define LIS2DH_INT_MODE_POS     0x03      // Interrupt fired when the orientation is in a known zone and stay until we stay in this zone => Position
 #define LIS2DH_INT_MODE_MAXVALUE  0x03
 
 #define LIS2DH_INTEVENT_SHIFT   0
@@ -231,6 +231,8 @@
 #define LIS2DH_INTEVENT_Y_LOW   0x04      // Fire interrupt on Y low event of direction recognotion
 #define LIS2DH_INTEVENT_X_HIGH  0x02      // Fire interrupt on X high event of direction recognotion
 #define LIS2DH_INTEVENT_X_LOW   0x01      // Fire interrupt on X low event of direction recognotion
+#define LIS2DH_INTEVENT_NONE    0x00      // No interrupt
+#define LIS2DH_INTEVENT_ALL     0x3F      // No interrupt
 #define LIS2DH_INTEVENT_MAXVALUE 0x3F
 
 
@@ -242,6 +244,8 @@
 #define LIS2DH_YL_MASK        0x04
 #define LIS2DH_XH_MASK        0x02
 #define LIS2DH_XL_MASK        0x01
+#define LIS2DH_INT_ALL_MASK   0x7F
+#define LIS2DH_INT_POS_MASK   0x3F
 
 // INT1/2_THS masks
 #define LIS2DH_THS_MASK       0x7F
@@ -344,32 +348,49 @@
 #define LIS2DH_LIS2DH_SA0_LOW     LIS2DH_DEFAULT_ADDRESS
 #define LIS2DH_LIS2DH_SA0_HIGH    (LIS2DH_DEFAULT_ADDRESS+1)
 
+#define LIS2DH_INTERRUPT1     1
+#define LIS2DH_INTERRUPT2     2
 
+// 6D position of the Object. Assuming the TOP is component top side
+// We assume the position entry is the direction the TOP side is looking
+#define LIS2DH_POSITION_TOP_ON_NONE     0x00
+#define LIS2DH_POSITION_TOP_ON_TOP      0x20
+#define LIS2DH_POSITION_TOP_ON_BOTTOM   0x10
+#define LIS2DH_POSITION_TOP_ON_RIGHT    0x02
+#define LIS2DH_POSITION_TOP_ON_LEFT     0x01     
+#define LIS2DH_POSITION_TOP_ON_FRONT    0x04
+#define LIS2DH_POSITION_TOP_ON_BACK     0x08
 
 class LIS2DH {
  public:
+
+    // Main function to be use
     LIS2DH(uint8_t);
     bool init(void);                                                                                                      // Default Init 8b, 10Hz, 2G
     bool init(int resolution, int frequency, int scale);
+    bool initPosition6D();                                                                                               // Configure the 6D position function on INT1
+    bool reinit();                                                                                                        // Do not change the device config but restore the lis2dh12 structure  
     void dumpConfig(void);
-    void readSetting();                                                                                                   // Restore scale, resolution, frequency based on chip current config
 
+    uint8_t getPendingMotions( int16_t * _buffer, uint8_t size);                                                          // Get all the FiFo pending measure for X,Y,Z 
+    uint8_t getPendingAcceleration( int16_t * _buffer, uint8_t size);                                                     // Get all the Fifo pending measure in Mg ( x,y,z )
+    uint8_t getPendingForces( int16_t * _buffer, uint8_t size);                                                           // Get all the Fifo pending measure into a force in Mg array |A|
+
+    bool runBackgroundTiltDetection(uint16_t forceMg);                                                                    // Configure Interrupt for being fired if the force is detected any axis
+    bool hasTiltDetected();                                                                                               // Return true when a tilt has been detected and clear the interrupt
+
+    uint8_t getPosition6D();                                                                                              // Return one of the 6D positions
+
+    // Low level functions
     int16_t getAxisX(void);                                                                                               // Get the last measured X acceleration
     int16_t getAxisY(void);                                                                                               // Get the last measured Y acceleration
     int16_t getAxisZ(void);                                                                                               // Get the last measured Z acceleration
     void getMotion(int16_t* ax, int16_t* ay, int16_t* az);                                                                // Get the last measured X,Y,Z acceleration
-    uint8_t getPendingMotions( int16_t * _buffer, uint8_t size);                                                          // Get all the FiFo pending measure for X,Y,Z 
     int8_t getAxisX_LR(void);                                                                                             // Get the last measured X acceleration in LowpoweR mode (8 bits)
     int8_t getAxisY_LR(void);                                                                                             // Get the last measured Y acceleration in LowpoweR mode (8 bits)
     int8_t getAxisZ_LR(void);                                                                                             // Get the last measured Z acceleration in LowpoweR mode (8 bits)
     void getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az);                                                                // Get the last measured X,Y,Z acceleration in LowpowerR mode (8bits)
-    uint8_t getPendingMotions_LR( int8_t * _buffer, uint8_t size);                                                        // Get all the FiFo pending measure for X,Y,Z in LowpoweR mode (8bits)
-    uint8_t getPendingAcceleration( int16_t * _buffer, uint8_t size);                                                     // Get all the Fifo pending measure in Mg ( x,y,z )
-    uint8_t getPendingForces( int16_t * _buffer, uint8_t size);                                                           // Get all the Fifo pending measure into a force in Mg array |A|
 
-    bool getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az);        // return acceleration in mg instead of raw values
-    bool getAcceleration(int16_t * x, int16_t * y, int16_t * z);                                                          // equivalent but use internal known config for this.
-    bool getAccelerationForce(const uint8_t resolution, const uint8_t scale, uint16_t * force);
 
     bool tempHasOverrun(void);
     bool tempDataAvailable(void);
@@ -397,20 +418,20 @@ class LIS2DH {
     bool enableAxisZ(void);
     bool disableAxisZ(void);
     bool isZAxisEnabled(void);
-    bool getHPFilterMode(uint8_t mode);
+    uint8_t getHPFilterMode();
     bool setHPFilterMode(uint8_t mode);
-    bool getHPFilterCutOff(uint8_t mode);
+    uint8_t getHPFilterCutOff();
     bool setHPFilterCutOff(uint8_t mode);
-    bool EnableHPClick(void);
+    bool enableHPClick(void);
     bool disableHPClick(void);
     bool isHPClickEnabled(void);
-    bool EnableHPIA1(void);
+    bool enableHPIA1(void);
     bool disableHPIA1(void);
     bool isHPIA1Enabled(void);
-    bool EnableHPIA2(void);
+    bool enableHPIA2(void);
     bool disableHPIA2(void);
     bool isHPIA2Enabled(void);
-    bool EnableHPFDS(void);
+    bool enableHPFDS(void);
     bool disableHPFDS(void);
     bool isHPFDSEnabled(void);
     bool enableAxisXYZ(void);
@@ -423,8 +444,8 @@ class LIS2DH {
     bool disableAllInterrupt();
     bool setInterruptPolarity(uint8_t polarity);
     bool triggerSelect(uint8_t triggerMode);
-    bool intWorkingMode(uint8_t _int, uint8_t _mode);
-    bool enableInterruptEvent(uint8_t _int, uint8_t _intEvent);
+    bool intWorkingMode(uint8_t _int, uint8_t _mode);                                 // Set the interrupt mode (OR, AND, 6D Movement, 6D Positions) see LIS2DH_INT_MODE_XXX
+    bool enableInterruptEvent(uint8_t _int, uint8_t _intEvent);                       // Select the interrupt event source X,Y,Z Higher or Lower see LIS2DH_INTEVENT_XX
     bool isInterruptFired(uint8_t _int);
     bool isInterruptZHighFired(uint8_t _int);
     bool isInterruptZLowFired(uint8_t _int);
@@ -432,10 +453,11 @@ class LIS2DH {
     bool isInterruptYLowFired(uint8_t _int);
     bool isInterruptXHighFired(uint8_t _int);
     bool isInterruptXLowFired(uint8_t _int);
-    bool setInterruptThreshold(uint8_t _int, uint8_t raw);
-    bool setInterruptThresholdMg(uint8_t _int, uint8_t mg, const uint8_t scale);
+    bool setInterruptThreshold(uint8_t _int, uint8_t raw);                            // Set the raw limit for an interrupt to be fired
+    bool setInterruptThresholdMg(uint8_t _int, uint8_t mg, const uint8_t scale);      // Set the limit in mG for an interrupt to be fired
     bool setInterruptDuration(uint8_t _int, uint8_t raw);
     bool setInterruptDurationMs(uint8_t _int, uint32_t ms, const uint8_t odr);    
+    bool enableLatchInterrupt(uint8_t _int, bool enable);                             // When true, Interrupt is cleared only when INTx_SRC register is read
 
     bool setLittleEndian();
     bool setBitEndian();
@@ -447,8 +469,6 @@ class LIS2DH {
 
     bool reboot();
     bool enableFifo(bool enable);
-    bool enableLatchInterrupt1(bool enable);
-    bool enableLatchInterrupt2(bool enable);
 
     bool setReference(uint8_t ref);
     uint8_t getDataStatus();
@@ -480,13 +500,19 @@ class LIS2DH {
     bool setClickTimeWindow(uint8_t raw);
 
  private:
+    void readSetting();                                                                                                   // Restore scale, resolution, frequency based on chip current config
+
+    bool getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az);        // return acceleration in mg instead of raw values
+    bool getAcceleration(int16_t * x, int16_t * y, int16_t * z);                                                          // equivalent but use internal known config for this.
+ 
     bool writeRegister(const uint8_t register_addr, const uint8_t value);
     bool writeRegisters(const uint8_t msb_register, const uint8_t msb_value, const uint8_t lsb_register, const uint8_t lsb_value);
     bool writeMaskedRegister8(const uint8_t register_addr, const uint8_t mask, const bool value);
     bool writeMaskedRegisterI(const int register_addr, const int mask, const int value);
-    uint8_t  readRegister(const uint8_t register_addr);
+    uint8_t readRegister(const uint8_t register_addr);
     uint16_t readRegisters(const uint8_t msb_register, const uint8_t lsb_register);
-    uint8_t  readMaskedRegister(const uint8_t register_addr, const uint8_t mask);
+    uint8_t readMaskedRegister(const uint8_t register_addr, const uint8_t mask);
+    uint8_t readFifo(int16_t * _buffer,const uint8_t maxSz);
     
     bool convertMgToRaw(uint8_t * _raw, uint16_t mg, uint8_t scale);
     bool convertMsToRaw(uint8_t * _raw, uint32_t ms, const uint8_t odr);
@@ -496,6 +522,41 @@ class LIS2DH {
     uint8_t _frequency;         // store the current frequency (Hz)
     uint8_t _scale;             // store the current scale (xG)
     uint8_t _fifoMode;          // store the current fifo mode
+    uint8_t _odr;               // store the current ODR mode
 };
+
+
+// Logger wrapper
+#define LIS2DH_LOG_LEVEL 5
+
+#if LIS2DH_LOG_LEVEL >= 5
+#define LIS2DH_LOG_DEBUG(x) Serial.printf x
+#else
+#define LIS2DH_LOG_DEBUG(x) 
+#endif
+
+#if LIS2DH_LOG_LEVEL >= 4
+#define LIS2DH_LOG_INFO(x) Serial.printf x
+#else
+#define LIS2DH_LOG_INFO(x) 
+#endif
+
+#if LIS2DH_LOG_LEVEL >= 3
+#define LIS2DH_LOG_WARN(x) Serial.printf x
+#else
+#define LIS2DH_LOG_WARN(x) 
+#endif
+
+#if LIS2DH_LOG_LEVEL >= 2
+#define LIS2DH_LOG_ERROR(x) Serial.printf x
+#else
+#define LIS2DH_LOG_ERROR(x) 
+#endif
+
+#if LIS2DH_LOG_LEVEL >= 1
+#define LIS2DH_LOG_ANY(x) Serial.printf x
+#else
+#define LIS2DH_LOG_ANY(x) 
+#endif
 
 #endif /* _LIS2DH_H_ */

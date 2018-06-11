@@ -15,6 +15,14 @@
 #include "lis2dh12.h"
 #include "Wire.h"
 
+// =============================================================================================
+// HIGH LEVEL FUNCTIONS
+// =============================================================================================
+
+// -----------------------------------------------------
+// INIT
+// -----------------------------------------------------
+
 /**
  * Set the LIS2DH chip address based on the configuration selected for
  * SA0 pin.
@@ -62,15 +70,52 @@ bool LIS2DH::init(int resolution, int frequency, int scale) {
       // activate High Pass filter on Output and Int1
       ret &= this->setHPFilterMode(LIS2DH_HPM_NORMAL_RESET);
       ret &= this->setHPFilterCutOff(LIS2DH_HPCF_ODR_50); // 0.2Hz high pass Fcut
-      ret &= this->EnableHPFDS();
-      ret &= this->EnableHPIA1();
-      ret &= this->EnableHPClick(); 
+      ret &= this->enableHPFDS();
+      ret &= this->disableHPIA1();
+      ret &= this->enableHPIA2();
+      ret &= this->enableHPClick(); 
+
      
     } else {
       LIS2DH_LOG_ERROR(("LIS2DH Init failed : not found\r\n"));
       return false;      
     }
 }
+
+
+
+/**
+ * Reinit is not changing the device configuration but is preparing
+ * the lisd2h12 software structure to be used. This is used when the
+ * MCU is siwtched off when the lis2dh was running in background.
+ * The MCU is waking up, calling this function to be prepared to
+ * get data from the LIS2DH. Config is obtained from the LIS2DH
+ */
+bool LIS2DH::reinit() {
+  bool ret = true;
+    Wire.begin(); 
+    if ( this->whoAmI() ) {
+      this->readSetting();
+    }else {
+      LIS2DH_LOG_ERROR(("LIS2DH FRe-Init failed : not found\r\n"));
+      return false;      
+    }
+}
+
+
+/**
+ * Restore the frequency, scale & resolution from the
+ * register - used when the LIS2DH structure has been 
+ * resetted but device still configured
+ */
+void LIS2DH::readSetting() {
+  this->_scale = getAccelerationScale();
+  this->_frequency = getDataRate();
+  this->_resolution = getResolutionMode();
+  this->_fifoMode = getFiFoMode();
+  this->_odr = getHPFilterCutOff(); 
+}
+
 
 void LIS2DH::dumpConfig(void) {
   LIS2DH_LOG_ANY(("---LIS2DH Config---\r\n"));
@@ -83,30 +128,140 @@ void LIS2DH::dumpConfig(void) {
   LIS2DH_LOG_ANY(("STATUS_REG : 0x%02X\r\n",readRegister(LIS2DH_STATUS_REG2)));
   LIS2DH_LOG_ANY(("FIFO_CTRL_REG : 0x%02X\r\n",readRegister(LIS2DH_FIFO_CTRL_REG)));
   LIS2DH_LOG_ANY(("FIFO_SRC_REG : 0x%02X\r\n",readRegister(LIS2DH_FIFO_SRC_REG)));
+  LIS2DH_LOG_ANY(("INT1_CFG : 0x%02X\r\n",readRegister(LIS2DH_INT1_CFG)));
+  LIS2DH_LOG_ANY(("INT1_THS : 0x%02X\r\n",readRegister(LIS2DH_INT1_THS)));
+  LIS2DH_LOG_ANY(("INT2_CFG : 0x%02X\r\n",readRegister(LIS2DH_INT2_CFG)));
+  LIS2DH_LOG_ANY(("INT2_THS : 0x%02X\r\n",readRegister(LIS2DH_INT2_THS)));
+
+
+  LIS2DH_LOG_ANY(("INT1_SRC : 0x%02X\r\n",readRegister(LIS2DH_INT1_SOURCE)));
+  LIS2DH_LOG_ANY(("INT2_SRC : 0x%02X\r\n",readRegister(LIS2DH_INT2_SOURCE)));
 
   LIS2DH_LOG_ANY(("Resolution : %d\r\n",this->_resolution));
   LIS2DH_LOG_ANY(("Frequency : %d\r\n",this->_frequency));
   LIS2DH_LOG_ANY(("Scale : %d\r\n",this->_scale));
   LIS2DH_LOG_ANY(("FiFo Mode : %d\r\n",this->_fifoMode));
+  LIS2DH_LOG_ANY(("Odr : %d\r\n",this->_odr));
+}
+
+
+// -----------------------------------------------------
+// Acceleration & Motion access
+// -----------------------------------------------------
+
+
+/**
+ * Read the Fifo buffer until empty. Load the result into a
+ * int8_t/int16_t [size][3] table and return the number of element
+ * loaded in the table.
+ * The bypass flag indicate if the fifo is activated of not
+ * The resolution indicates how to read the data and also the buffer
+ * type.
+ */
+uint8_t LIS2DH::getPendingMotions( int16_t * _buffer, uint8_t size) {
+  return readFifo(_buffer,size);
 }
 
 /**
- * Restore the frequency, scale & resolution from the
- * register - used when the LIS2DH structure has been 
- * resetted but device still configured
+ * Return the FiFo content like for getPendingMotions but the result
+ * is in mG taking into consideration the device configuration
  */
-void LIS2DH::readSetting() {
-  this->_scale = getAccelerationScale();
-  this->_frequency = getDataRate();
-  this->_resolution = getResolutionMode();
-  this->_fifoMode = getFiFoMode();
+uint8_t LIS2DH::getPendingAcceleration( int16_t * _buffer, uint8_t size) {
+  uint8_t sz=readFifo(_buffer,size);
+  int16_t (*buffer16)[3] = (int16_t (*)[3]) _buffer;  
+  for ( int i = 0 ; i < sz ; i++ ) {
+    this->getAcceleration(&buffer16[i][0],&buffer16[i][1],&buffer16[i][2]);
+  }
+  return sz;
 }
+
+/**
+ * Instead of returning the acceleration on the 3 axis, this function
+ * returns the force of the acceleration. only one value is returned 
+ * for all the axes.
+ */
+uint8_t LIS2DH::getPendingForces( int16_t * _buffer, uint8_t size) {
+  int16_t buffer16[32][3];
+  uint32_t _force;
+  uint8_t sz=readFifo((int16_t *)buffer16,size);
+  for ( int i = 0 ; i < sz ; i++ ) {
+    this->getAcceleration(&buffer16[i][0],&buffer16[i][1],&buffer16[i][2]);
+    _force = (int32_t)buffer16[i][0]*buffer16[i][0] + (int32_t)buffer16[i][1]*buffer16[i][1] + (int32_t)buffer16[i][2]*buffer16[i][2];
+    _force = sqrt(_force);
+    _buffer[i] = _force;
+  }
+  return sz;
+}
+
+
+// -----------------------------------------------------
+// BACKGROUND TILT DETECTION
+// -----------------------------------------------------
+
+/**
+ * Set lis2dh interrupt 2 to be fired on the given force.
+ * The interrupt will be kept until a call to hasTiltDectected()
+ * The captured duration will depends on the _frequency parameter
+ * from 1/10s. by default 100ms
+ */
+bool LIS2DH::runBackgroundTiltDetection(uint16_t forceMg) {
+  uint8_t raw;
+  bool ret;
+  if ( setInterruptThresholdMg(LIS2DH_INTERRUPT2, forceMg, this->_scale) ) {
+      ret  = enableLatchInterrupt(LIS2DH_INTERRUPT2, true);
+      ret &= intWorkingMode(LIS2DH_INTERRUPT2, LIS2DH_INT_MODE_OR); 
+      ret &= enableInterruptEvent(LIS2DH_INTERRUPT2, LIS2DH_INTEVENT_Z_HIGH | LIS2DH_INTEVENT_Y_HIGH | LIS2DH_INTEVENT_X_HIGH); 
+  } else {
+    LIS2DH_LOG_ERROR(("LIS2DH - runBackgroundTiltDetection - Invalid forceMg value\r\n"));
+  }
+  return ret;
+}
+
+bool LIS2DH::hasTiltDetected() {
+  uint8_t status = readRegister(LIS2DH_INT2_SOURCE);
+  return ( (status & LIS2DH_INT_IA_MASK) > 0 );
+}
+
+// -----------------------------------------------------
+// 6D Positions
+// -----------------------------------------------------
+
+/**
+ * Init 6D position detection on INT1
+ * With automatic restart every 1 S
+ */
+bool LIS2DH::initPosition6D() {
+   bool ret;
+   ret  = intWorkingMode(LIS2DH_INTERRUPT1, LIS2DH_INT_MODE_POS); 
+   ret &= enableInterruptEvent(LIS2DH_INTERRUPT1, LIS2DH_INTEVENT_ALL); 
+   ret &= enableLatchInterrupt(LIS2DH_INTERRUPT1, false);
+   ret &= setInterruptThresholdMg(LIS2DH_INTERRUPT1, 100, this->_scale);
+   ret &= setInterruptDurationMs(LIS2DH_INTERRUPT1, 1000, this->_odr); 
+   return ret;  
+}
+
+/**
+ * Read the position and return it when stable
+ * Otherwize return LIS2DH_POSITION_TOP_ON_NONE
+ */
+uint8_t LIS2DH::getPosition6D() { 
+  uint8_t position = readRegister(LIS2DH_INT1_SOURCE);
+  if ( (position & LIS2DH_INT_IA_MASK) > 0 ) {
+    return ( position & LIS2DH_INT_POS_MASK );   
+  }
+  return LIS2DH_POSITION_TOP_ON_NONE;
+}
+
+
+
+// =============================================================================================
+// LOW LEVEL FUNCTIONS
+// =============================================================================================
+
 
 // -----------------------------------------------------
 // Data Access
 // -----------------------------------------------------
-
-
 
 
 /** Read the X axis registers
@@ -180,107 +335,9 @@ void LIS2DH::getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az) {
     *az = getAxisZ_LR();
 }
 
-/**
- * Read the Fifo buffer until empty. Load the result into a
- * int8_t/int16_t [size][3] table and return the number of element
- * loaded in the table.
- * The bypass flag indicate if the fifo is activated of not
- * The resolution indicates how to read the data and also the buffer
- * type.
- */
-uint8_t LIS2DH::getPendingMotions( int16_t * _buffer, uint8_t size) {
-  return readFifo(_buffer,size);
-}
-
-/**
- * Return the FiFo content like for getPendingMotions but the result
- * is in mG taking into consideration the device configuration
- */
-uint8_t LIS2DH::getPendingAcceleration( int16_t * _buffer, uint8_t size) {
-  uint8_t sz=readFifo(_buffer,size);
-  int16_t (*buffer16)[3] = (int16_t (*)[3]) _buffer;  
-  for ( int i = 0 ; i < sz ; i++ ) {
-    this->getAcceleration(&buffer16[i][0],&buffer16[i][1],&buffer16[i][2]);
-  }
-  return sz;
-}
-
-/**
- * Instead of returning the acceleration on the 3 axis, this function
- * returns the force of the acceleration. only one value is returned 
- * for all the axes.
- */
-uint8_t LIS2DH::getPendingForces( int16_t * _buffer, uint8_t size) {
-  int16_t buffer16[32][3];
-  uint32_t _force;
-  uint8_t sz=readFifo((int16_t *)buffer16,size);
-  for ( int i = 0 ; i < sz ; i++ ) {
-    this->getAcceleration(&buffer16[i][0],&buffer16[i][1],&buffer16[i][2]);
-    _force = (int32_t)buffer16[i][0]*buffer16[i][0] + (int32_t)buffer16[i][1]*buffer16[i][1] + (int32_t)buffer16[i][2]*buffer16[i][2];
-    _force = sqrt(_force);
-    _buffer[i] = _force;
-  }
-  return sz;
-}
 
 
-/**
- * Return the accelaration in mg taking into account
- * the given
- * - Resolution ( 8,10,12 bits)
- * - Scale - see LIS2DH_FS_SCALE_XG
- * The result is given in mG
- */
- bool LIS2DH::getAcceleration(int16_t * x, int16_t * y, int16_t * z){
-    this->getAcceleration(this->_resolution,this->_scale,x,y,z);
- }
 
-
- 
-bool LIS2DH::getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az) {
-
-  if ( resolution > LIS2DH_RESOLUTION_MAXVALUE || scale > LIS2DH_FS_MAXVALUE ) return false;
-
-  int16_t maxValue;
-  int32_t x,y,z;
-  bool    ret = true;
-  switch ( resolution ) {
-     case LIS2DH_RESOLUTION_8B:
-          maxValue = 256;
-          break;
-    case LIS2DH_RESOLUTION_10B:
-          maxValue = 1024;
-          break;
-    case LIS2DH_RESOLUTION_12B:
-          maxValue = 4096;
-          break;
-  }
-
-  switch ( scale) {
-    case LIS2DH_FS_SCALE_2G:
-         *ax = (*ax*2000)/maxValue; 
-         *ay = (*ay*2000)/maxValue; 
-         *az = (*az*2000)/maxValue; 
-         break;
-    case LIS2DH_FS_SCALE_4G:
-         *ax = (*ax*4000)/maxValue; 
-         *ay = (*ay*4000)/maxValue; 
-         *az = (*az*4000)/maxValue; 
-         break;
-    case LIS2DH_FS_SCALE_8G:
-         *ax = (*ax*8000)/maxValue; 
-         *ay = (*ay*8000)/maxValue; 
-         *az = (*az*8000)/maxValue; 
-         break;
-    case LIS2DH_FS_SCALE_16G:
-         *ax = (*ax*16000)/maxValue; 
-         *ay = (*ay*16000)/maxValue; 
-         *az = (*az*16000)/maxValue; 
-         break;            
-  }
-
-  return ret;
-}
 
 
 // ======= Temperature
@@ -536,7 +593,7 @@ bool LIS2DH::disableAxisXYZ(void) {
 /*
  * Enable/Disable High Pass Filter standard output
  */
-bool LIS2DH::EnableHPFDS(void) {
+bool LIS2DH::enableHPFDS(void) {
     return writeMaskedRegister8(LIS2DH_CTRL_REG2, LIS2DH_FDS_MASK, true);
 }
 
@@ -553,8 +610,10 @@ bool LIS2DH::isHPFDSEnabled(void) {
  * dynamic acceleration => basically it remove the gravity... as any stable 
  * acceleration
  */
-bool LIS2DH::getHPFilterMode(uint8_t mode) {
-    return readMaskedRegister(LIS2DH_CTRL_REG2, LIS2DH_HPM_MASK);
+uint8_t LIS2DH::getHPFilterMode() {
+    uint8_t v = readMaskedRegister(LIS2DH_CTRL_REG2, LIS2DH_HPM_MASK);
+    v >>= LIS2DH_HPM_SHIFT;
+    return v;
 }
 
 bool LIS2DH::setHPFilterMode(uint8_t mode) {
@@ -570,14 +629,17 @@ bool LIS2DH::setHPFilterMode(uint8_t mode) {
  * the reference is the ODR frequency (acquisition frequency), the Cut Off
  * frequency is this frequency divide par a given number from 9 to 400
  */
-bool LIS2DH::getHPFilterCutOff(uint8_t mode) {
-    return readMaskedRegister(LIS2DH_CTRL_REG2, LIS2DH_HPM_MASK);
+uint8_t LIS2DH::getHPFilterCutOff() {
+    uint8_t mode = readMaskedRegister(LIS2DH_CTRL_REG2, LIS2DH_HPM_MASK);
+    mode >>= LIS2DH_HPCF_SHIFT;
+    return mode;
 }
 
 bool LIS2DH::setHPFilterCutOff(uint8_t mode) {
     if(mode > LIS2DH_HPCF_MAXVALUE) {
         return false;
     }
+    this->_odr = mode;  
     uint8_t fcut = mode << LIS2DH_HPCF_SHIFT;
     return writeMaskedRegisterI(LIS2DH_CTRL_REG2, LIS2DH_HPCF_MASK, fcut);
 }
@@ -585,7 +647,7 @@ bool LIS2DH::setHPFilterCutOff(uint8_t mode) {
 /*
  * Enable/Disable High Pass Filter on Click
  */
-bool LIS2DH::EnableHPClick(void) {
+bool LIS2DH::enableHPClick(void) {
     return writeMaskedRegister8(LIS2DH_CTRL_REG2, LIS2DH_HPCLICK_MASK, true);
 }
 
@@ -600,7 +662,7 @@ bool LIS2DH::isHPClickEnabled(void) {
 /*
  * Enable/Disable High Pass Filter on Interrupt 2
  */
-bool LIS2DH::EnableHPIA2(void) {
+bool LIS2DH::enableHPIA2(void) {
     return writeMaskedRegister8(LIS2DH_CTRL_REG2, LIS2DH_HPIA2_MASK, true);
 }
 
@@ -615,7 +677,7 @@ bool LIS2DH::isHPIA2Enabled(void) {
 /*
  * Enable/Disable High Pass Filter on Interrupt 1
  */
-bool LIS2DH::EnableHPIA1(void) {
+bool LIS2DH::enableHPIA1(void) {
     return writeMaskedRegister8(LIS2DH_CTRL_REG2, LIS2DH_HPIA1_MASK, true);
 }
 
@@ -678,11 +740,14 @@ bool LIS2DH::setInterruptPolarity(uint8_t polarity) {
 /**
  * Latch INterrupt 1/2 => the interrupt is only cleared when INT1_SRC / INT2_SRC register is read
  */
-bool LIS2DH::enableLatchInterrupt1(bool enable) {
-  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT1_MASK,enable); 
-}
-bool LIS2DH::enableLatchInterrupt2(bool enable) {
-  return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT2_MASK,enable); 
+bool LIS2DH::enableLatchInterrupt(uint8_t _int, bool enable) {
+  if ( _int > 2 || _int < 1 ) return false;  
+  switch (_int) {
+    case 1 : 
+        return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT1_MASK,enable); 
+    case 2 :
+        return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_LIR_INT2_MASK,enable); 
+  }
 }
 
 /**
@@ -1451,4 +1516,60 @@ bool LIS2DH::convertMsToRaw(uint8_t * _raw, uint32_t ms, const uint8_t odr) {
   } else {
     return false;
   }
+}
+
+/**
+ * Return the accelaration in mg taking into account
+ * the given
+ * - Resolution ( 8,10,12 bits)
+ * - Scale - see LIS2DH_FS_SCALE_XG
+ * The result is given in mG
+ */
+ bool LIS2DH::getAcceleration(int16_t * x, int16_t * y, int16_t * z){
+    this->getAcceleration(this->_resolution,this->_scale,x,y,z);
+ }
+ 
+bool LIS2DH::getAcceleration(const uint8_t resolution, const uint8_t scale, int16_t * ax, int16_t * ay, int16_t * az) {
+
+  if ( resolution > LIS2DH_RESOLUTION_MAXVALUE || scale > LIS2DH_FS_MAXVALUE ) return false;
+
+  int16_t maxValue;
+  int32_t x,y,z;
+  bool    ret = true;
+  switch ( resolution ) {
+     case LIS2DH_RESOLUTION_8B:
+          maxValue = 128;
+          break;
+    case LIS2DH_RESOLUTION_10B:
+          maxValue = 512;
+          break;
+    case LIS2DH_RESOLUTION_12B:
+          maxValue = 2048;
+          break;
+  }
+
+  switch ( scale) {
+    case LIS2DH_FS_SCALE_2G:
+         *ax = (*ax*2000)/maxValue; 
+         *ay = (*ay*2000)/maxValue; 
+         *az = (*az*2000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_4G:
+         *ax = (*ax*4000)/maxValue; 
+         *ay = (*ay*4000)/maxValue; 
+         *az = (*az*4000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_8G:
+         *ax = (*ax*8000)/maxValue; 
+         *ay = (*ay*8000)/maxValue; 
+         *az = (*az*8000)/maxValue; 
+         break;
+    case LIS2DH_FS_SCALE_16G:
+         *ax = (*ax*16000)/maxValue; 
+         *ay = (*ay*16000)/maxValue; 
+         *az = (*az*16000)/maxValue; 
+         break;            
+  }
+
+  return ret;
 }
