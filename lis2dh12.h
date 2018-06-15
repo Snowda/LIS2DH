@@ -20,6 +20,7 @@
 #define LIS2DH_OUT_TEMP_H     0x0D
 #define LIS2DH_INT_COUNTER_REG  0x0E
 #define LIS2DH_WHO_AM_I     0x0F
+#define LIS2DH_CTRL_REG0      0x1E        // Not documented register : bit 1 => connect / disconnect SDO,SA0 internal pullup
 #define LIS2DH_TEMP_CFG_REG   0x1F
 #define LIS2DH_CTRL_REG1    0x20
 #define LIS2DH_CTRL_REG2    0x21
@@ -68,6 +69,11 @@
 
 // TEMP_CFG_REG masks
 #define LIS2DH_TEMP_EN_MASK   0xC0
+
+// CTRL_REG1 masks
+#define LIS2DH_REG0_SA0PULLUP_MASK 0x80
+#define LIS2DH_REG0_SA0PULLUP_ENABLE 0x00
+#define LIS2DH_REG0_SA0PULLUP_DISABLE 0x80
 
 // CTRL_REG1 masks
 #define LIS2DH_ODR_MASK     0xF0
@@ -360,6 +366,8 @@
 #define LIS2DH_POSITION_TOP_ON_LEFT     0x01     
 #define LIS2DH_POSITION_TOP_ON_FRONT    0x04
 #define LIS2DH_POSITION_TOP_ON_BACK     0x08
+
+#define LIS2DH_TEMPERATURE_INVALID      0x1FFF
 
 class LIS2DH {
  public:

@@ -16,6 +16,17 @@
 #include "Wire.h"
 
 // =============================================================================================
+// Power consumption information
+// =============================================================================================
+// Default configuration : 188uA (bootup, no setting)
+// Over consumption was due to SA0 set to low ... in this case a pull-up resistor is consuming energy
+// Undocumented register 0 should fix that but I did not success...
+//
+// With the default configuration the power consumption is about 130uA, far away from spec any info
+// on how to reduce power consumption is welcome.
+
+
+// =============================================================================================
 // HIGH LEVEL FUNCTIONS
 // =============================================================================================
 
@@ -29,14 +40,15 @@
  */
 LIS2DH::LIS2DH( uint8_t sa0 ) {
   switch ( sa0 ) {
+    default:
     case LOW :
-        _address = LIS2DH_LIS2DH_SA0_LOW;    
+        _address = LIS2DH_LIS2DH_SA0_LOW;   
+        // Not working way to disable pull-down
+        //writeMaskedRegisterI(LIS2DH_CTRL_REG0, LIS2DH_REG0_SA0PULLUP_MASK, LIS2DH_REG0_SA0PULLUP_DISABLE);
         break;
     case HIGH :
         _address = LIS2DH_LIS2DH_SA0_HIGH;
         break;    
-    default:
-        _address = LIS2DH_LIS2DH_SA0_LOW;    
   }
 }
 
@@ -58,8 +70,8 @@ bool LIS2DH::init(int resolution, int frequency, int scale) {
       // shutdown interrupt
       ret &= this->disableAllInterrupt();
 
-      // enable temperature
-      ret &= this->setTempEnabled(true);
+      // disable temperature
+      ret &= this->setTempEnabled(false);
 
       // enable all the axis
       ret &= this->enableAxisXYZ();
@@ -74,7 +86,6 @@ bool LIS2DH::init(int resolution, int frequency, int scale) {
       ret &= this->disableHPIA1();
       ret &= this->enableHPIA2();
       ret &= this->enableHPClick(); 
-
      
     } else {
       LIS2DH_LOG_ERROR(("LIS2DH Init failed : not found\r\n"));
@@ -348,6 +359,7 @@ void LIS2DH::getMotion_LR(int8_t* ax, int8_t* ay, int8_t* az) {
  * is not documented in the datasheet. Test and function modification will be needed
  * ...Temperature refresh is ODR.
  * @TODO ...
+ * When the Temperature enable flag is on, the over consumption is about 40uA
  */
 
 bool LIS2DH::getTempEnabled(void) {
@@ -355,11 +367,20 @@ bool LIS2DH::getTempEnabled(void) {
 }
 
 bool LIS2DH::setTempEnabled(bool enable) {
-    return writeRegister(LIS2DH_TEMP_CFG_REG, enable ? LIS2DH_TEMP_EN_MASK : 0);
+    bool ret = writeRegister(LIS2DH_TEMP_CFG_REG, enable ? LIS2DH_TEMP_EN_MASK : 0);
+    ret     &= writeMaskedRegisterI(LIS2DH_CTRL_REG4, LIS2DH_BDU_MASK, enable ? LIS2DH_BDU_MASK : 0);
+    return ret;
 }
 
+/**
+ * Return the temperature. The LIS2DH does not gives an absolute temperature but a relative
+ * Temperature. The Datasheet or (Datashit ?) does not define the temperature is relative to.
+ * This is a try to a relative 25°C as this Temperature has been printed in the Datasheet.
+ */
 int16_t LIS2DH::getTemperature(void) {
-    if(tempDataAvailable()){
+    int i = 0;
+    while ( !tempDataAvailable() && i < 200 ) { i++; delay(1); }  
+    if ( i < 200 ) {
         int16_t t = (int16_t)(readRegisters(LIS2DH_OUT_TEMP_H, LIS2DH_OUT_TEMP_L));
         int shift = 0;
         if ( this->_resolution == LIS2DH_RESOLUTION_8B ) {
@@ -367,12 +388,13 @@ int16_t LIS2DH::getTemperature(void) {
         } else {
          int shift = ( this->_resolution == LIS2DH_RESOLUTION_10B)?6:4;
         }
-        return t >> shift;
+        return 25 + (t >> shift);
     } else {
-        //if new data isn't available
-        return 0xFFFF;
+        //if new data isn't available - timeout
+        return LIS2DH_TEMPERATURE_INVALID;
     }
 }
+
 
 bool LIS2DH::tempHasOverrun(void) {
     uint8_t overrun = readMaskedRegister(LIS2DH_STATUS_REG_AUX, LIS2DH_TOR_MASK);
@@ -589,6 +611,12 @@ bool LIS2DH::disableAxisXYZ(void) {
 
 // ====== HIGH Pass filter mode
 // see http://www.st.com/content/ccc/resource/technical/document/application_note/60/52/bd/69/28/f4/48/2b/DM00165265.pdf/files/DM00165265.pdf/jcr:content/translations/en.DM00165265.pdf
+// HPCF[2:1]\ft @1Hz    @10Hz  @25Hz  @50Hz @100Hz @200Hz @400Hz @1kHz6 ft@5kHz
+//  * AGGRESSIVE   0.02Hz  0.2Hz  0.5Hz  1Hz   2Hz    4Hz    8Hz    32Hz   100Hz
+//  * STRONG       0.008Hz 0.08Hz 0.2Hz  0.5Hz 1Hz    2Hz    4Hz    16Hz   50Hz
+//  * MEDIUM       0.004Hz 0.04Hz 0.1Hz  0.2Hz 0.5Hz  1Hz    2Hz    8Hz    25Hz
+//  * LIGHT        0.002Hz 0.02Hz 0.05Hz 0.1Hz 0.2Hz  0.5Hz  1Hz    4Hz    12Hz
+
 
 /*
  * Enable/Disable High Pass Filter standard output
@@ -951,6 +979,7 @@ bool LIS2DH::setBitEndian() {
 
 /** 
  *  Select a Block Data contunious update or an update only once the MSB & LSB has been read
+ *  BDU ensure the MSB or MSB value of a sample will not been changed until both MSB and LSB have been read.
  */
 bool LIS2DH::setContinuousUpdate(bool continuous) {
   return this->writeMaskedRegister8(LIS2DH_CTRL_REG4,LIS2DH_BDU_MASK,~continuous); 
@@ -977,7 +1006,7 @@ uint8_t LIS2DH::getAccelerationScale() {
 
 /** 
  *  Reboot memory content
- *  Honestly, I do not understand why this is doing, this is not a device reset for sure
+ *  Reload the calibration parameters.
  */
 bool LIS2DH::reboot() {
   return this->writeMaskedRegister8(LIS2DH_CTRL_REG5,LIS2DH_BOOT_MASK,true); 
